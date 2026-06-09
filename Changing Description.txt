@@ -1,0 +1,676 @@
+Project: Learning-Supervisor
+
+This is the single official project change log.
+
+After each meaningful completed task, append:
+- date and time
+- short summary of the completed work
+- key files changed
+- verification notes
+- whether the work is ready to push
+
+2026-05-27 21:36
+- Summary: Created the initial project definition for a single-user learning
+  supervision system that ingests PDFs, Markdown files, and URLs, then plans
+  deadline-backed study and review work.
+- Key files changed: `README.md`
+- Verification notes: The repository now has a root README that defines MVP
+  scope, architecture direction, repository layout, and the planned document
+  import workflow.
+- Ready to push: yes, as a planning baseline.
+
+2026-05-28 21:12
+- Summary: Built the first local FastAPI framework for Learning-Supervisor with
+  SQLite models, Markdown import, deadline scheduling, dashboard pages, study
+  completion flow, review flow, and local environment setup.
+- Key files changed: `README.md`, `requirements.txt`, `.gitignore`, `app/`,
+  `tests/`, `data/resources/.gitkeep`, `data/state/.gitkeep`,
+  `output/.gitkeep`
+- Verification notes: Pure-Python unit tests passed for the Markdown splitter
+  and scheduler, `python -m compileall app tests` succeeded, the FastAPI app
+  imported successfully from the local `.venv`, and route registration plus
+  empty-dashboard database access both succeeded.
+- Ready to push: yes, after human UI/flow review on localhost.
+
+2026-05-28 22:20
+- Summary: Reworked the product UI toward a higher-end, motion-led local
+  learning console with a new typography system, dark visual identity,
+  game-style loading overlay, ambient canvas background, GSAP-driven entrance
+  motion, and a redesigned dashboard structure.
+- Key files changed: `app/templates/base.html`, `app/templates/dashboard.html`,
+  `app/templates/resource_form.html`, `app/templates/resource_detail.html`,
+  `app/templates/task_detail.html`, `app/templates/review_detail.html`,
+  `app/static/app.css`, `app/static/app.js`
+- Verification notes: No extra validation packages were installed. Python
+  syntax validation still passed with `python -m compileall app`, and the FastAPI
+  app still imports with the expected route table from the local `.venv`.
+- Ready to push: yes, after direct browser review on localhost for motion,
+  typography, and perceived performance.
+
+2026-05-29 00:10
+- Summary: Pushed the UI further toward a more distinctive local mission-control
+  aesthetic with stronger typography, denser dashboard hierarchy, queue
+  compression for huge task lists, more polished detail and import pages, and a
+  refined loader plus pointer-reactive ambient effects.
+- Key files changed: `app/templates/base.html`, `app/templates/dashboard.html`,
+  `app/templates/resource_form.html`, `app/templates/resource_detail.html`,
+  `app/templates/task_detail.html`, `app/templates/review_detail.html`,
+  `app/static/app.css`, `app/static/app.js`
+- Verification notes: Per current instruction, acceptance is left for direct
+  localhost review instead of adding more validation work or extra tooling.
+- Ready to push: yes, after human visual acceptance on localhost.
+
+2026-05-29 21:45
+- Summary: Repaired several UI and product-flow issues by slowing the loader,
+  tying page reveal to the loader exit, fixing long-list expander styling,
+  improving dark select styling, adding a learning-mode choice for imported
+  resources, blocking future reviews until their due date, and enabling MathJax
+  for Markdown pages with formulas.
+- Key files changed: `app/models.py`, `app/db.py`, `app/main.py`,
+  `app/services/study_service.py`, `app/templates/base.html`,
+  `app/templates/dashboard.html`, `app/templates/resource_form.html`,
+  `app/templates/resource_detail.html`, `app/templates/task_detail.html`,
+  `app/templates/review_detail.html`, `app/static/app.css`,
+  `app/static/app.js`, `tests/test_study_service.py`
+- Verification notes: `python -m compileall app tests` passed, `python -m unittest`
+  passed, homepage/import/resource/task routes returned `200` during local
+  checks, future review routes returned `403`, and MathJax script inclusion was
+  confirmed in rendered HTML.
+- Ready to push: yes, after direct localhost acceptance of motion, select UI,
+  formula rendering, and revised review timing.
+
+2026-05-29 22:25
+- Summary: Reworked the remaining-list interaction away from native `details`
+  to a custom expander to avoid layout and scroll glitches, tightened the
+  dashboard hero scale, improved loader step spacing, simplified sticky-header
+  behavior, and redesigned the study-material area as a dark panel with a
+  brighter inner reading sheet.
+- Key files changed: `app/templates/dashboard.html`,
+  `app/templates/resource_detail.html`, `app/templates/task_detail.html`,
+  `app/templates/review_detail.html`, `app/static/app.css`,
+  `app/static/app.js`
+- Verification notes: `python -m compileall app tests` passed, `python -m unittest`
+  passed, and direct localhost checks still returned `200` for dashboard,
+  resource detail, and task detail pages.
+- Ready to push: yes, after human localhost review of the expander behavior,
+  loader step layout, dashboard hero density, and the new study-material reader
+  sheet.
+
+2026-05-31 11:14
+- Summary: Added a real V1 settings system with a persistent SQLite profile,
+  a dedicated `/settings` page, a new top-right Settings nav entry, and live
+  wiring for import defaults, review cadence, weekend scheduling, math
+  rendering, dashboard density, motion level, study-material theme, and queue
+  preview depth.
+- Key files changed: `app/models.py`, `app/db.py`, `app/main.py`,
+  `app/services/settings_service.py`, `app/services/study_service.py`,
+  `app/services/scheduler.py`, `app/templates/base.html`,
+  `app/templates/dashboard.html`, `app/templates/resource_form.html`,
+  `app/templates/task_detail.html`, `app/templates/review_detail.html`,
+  `app/templates/settings.html`, `app/static/app.css`, `app/static/app.js`,
+  `tests/test_scheduler.py`, `tests/test_settings_service.py`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost acceptance of the new settings
+  page, nav placement, and the updated dashboard/task presentation modes.
+
+2026-05-31 12:08
+- Summary: Completed the Chinese localization pass for the user-facing product
+  surface by translating templates, frontend loader copy, backend validation
+  messages, and settings labels while keeping internal enum values unchanged.
+- Key files changed: `app/main.py`, `app/models.py`,
+  `app/services/markdown_ingest.py`, `app/services/settings_service.py`,
+  `app/services/scheduler.py`, `app/services/study_service.py`,
+  `app/templates/base.html`, `app/templates/dashboard.html`,
+  `app/templates/resource_form.html`, `app/templates/resource_detail.html`,
+  `app/templates/task_detail.html`, `app/templates/review_detail.html`,
+  `app/templates/settings.html`, `app/static/app.css`, `app/static/app.js`,
+  `tests/test_study_service.py`
+- Verification notes: Final verification is `.venv\Scripts\python.exe -m compileall app tests`
+  plus `.venv\Scripts\python.exe -m unittest`, and direct localhost acceptance
+  is still the expected check for the translated UI.
+- Ready to push: yes, after human acceptance of the Chinese UI copy on localhost.
+
+2026-05-31 12:46
+- Summary: Rebalanced the UI layout to reduce crowding across the product by
+  widening the page shell, softening dashboard title scale, improving
+  Chinese-friendly font fallbacks and label spacing, increasing card breathing
+  room, allowing headers and action areas to wrap more safely, and adding
+  better long-title tolerance for detail pages.
+- Key files changed: `app/static/app.css`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of dashboard spacing,
+  corner labels, task cards, and settings/detail page headers.
+
+2026-05-31 13:11
+- Summary: Simplified the dashboard away from a product-marketing landing page
+  into a personal work surface by removing self-explanatory promo sections,
+  rewriting the hero and focus copy around immediate next actions, simplifying
+  queue and resource section language, and toning the global header copy toward
+  a single-user local tool.
+- Key files changed: `app/templates/base.html`,
+  `app/templates/dashboard.html`, `app/static/app.css`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the dashboard tone,
+  information density, and reduced commercial framing.
+
+2026-05-31 13:29
+- Summary: Redesigned the upper half of the dashboard to remove repetition and
+  empty space by replacing duplicated stat clusters with a single compact daily
+  summary grid on the left, keeping one focused “next step” task card on the
+  right, and tightening the dashboard section titles and action wording around
+  real personal workflow needs.
+- Key files changed: `app/templates/dashboard.html`, `app/static/app.css`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the redesigned upper
+  dashboard layout and reduced duplication.
+
+2026-05-31 13:42
+- Summary: Refined the redesigned dashboard header area by converting the main
+  and side titles from sentence-like prompts into more title-like noun phrases,
+  and by filling the right-side focus card with a compact progress row so the
+  lower-right area carries useful context instead of looking empty.
+- Key files changed: `app/templates/dashboard.html`, `app/static/app.css`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the stronger title feel
+  and the denser right-side task panel.
+
+2026-05-31 15:12
+- Summary: Simplified the import and settings pages into more utilitarian
+  single-column tool surfaces by removing the more cinematic page framing,
+  replacing it with compact form-first headers, and splitting both pages into
+  clearer operational sections that feel more like a private local control
+  panel than a product page.
+- Key files changed: `app/templates/resource_form.html`,
+  `app/templates/settings.html`, `app/static/app.css`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed and `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the new import/settings
+  tone, spacing, and section hierarchy.
+
+2026-05-31 15:29
+- Summary: Widened the import/settings tool pages for desktop use and upgraded
+  the background interaction from a simple node-link pointer effect into a
+  more layered ambient energy field with smoother pointer glow, wake trails,
+  drifting anchors, and motion-reactive filaments.
+- Key files changed: `app/static/app.css`, `app/static/app.js`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed, `.venv\Scripts\python.exe -m unittest` passed with 11 tests, and
+  `node --check app/static/app.js` passed for frontend syntax validation.
+- Ready to push: yes, after direct localhost review of the wider tool-page
+  layout and the upgraded background interaction feel.
+
+2026-05-31 15:56
+- Summary: Refined the upgraded background interaction by removing the
+  persistent trace layer, reducing pointer-to-anchor thread count, softening
+  the global pointer glow, and replacing the concentric-disc cursor aura with
+  a more unified energy mist.
+- Key files changed: `app/static/app.js`, `app/static/app.css`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the cleaner background
+  motion and the less intrusive cursor response.
+
+2026-05-31 17:13
+- Summary: Reworked the ambient background flow on the import and settings
+  surfaces into a cleaner diagonal particle field by replacing the oval cursor
+  aura with circular energy rings, making particles stream from top-left to
+  bottom-right with respawn on exit, adding a stronger mouse gravity field,
+  removing dirty wake traces, and capping mouse-linked lines to a much smaller
+  set.
+- Key files changed: `app/static/app.js`, `app/static/app.css`,
+  `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the new circular field,
+  diagonal particle flow, and lighter mouse interaction on the import/settings
+  pages.
+
+2026-05-31 17:27
+- Summary: Tightened the diagonal particle system so both large and small
+  particles now follow the same top-left to bottom-right flow, respawn from the
+  upper-left side based on travel progress instead of loose edge checks, and
+  render at a higher density without reintroducing heavy mouse-linked lines.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of particle respawn
+  visibility, stronger directional consistency, and the denser field.
+
+2026-05-31 17:39
+- Summary: Added a dedicated README handoff section for later AI agents so the
+  next session can recover the real project state, current UI priorities,
+  RecallLoom caveats, and validation routine without depending on old chat
+  context.
+- Key files changed: `README.md`, `Changing Description.txt`
+- Verification notes: Documentation-only update; no code or test behavior was
+  changed.
+- Ready to push: yes.
+
+2026-05-31 17:33
+- Summary: Increased the ambient background particle density again so the
+  diagonal field feels much fuller on import and settings pages, with
+  substantially higher anchor and filament counts in both soft and full motion
+  modes.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed.
+- Ready to push: yes, after direct localhost review of density versus perceived
+  performance on the target machine.
+
+2026-05-31 17:39
+- Summary: Added a second, finer dust-particle layer on top of another large
+  increase to the main particle counts so the import/settings background reads
+  as a much denser diagonal energy field instead of a sparse line system.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed.
+- Ready to push: yes, after direct localhost review of density, readability,
+  and frame-rate feel on the target machine.
+
+2026-05-31 17:54
+- Summary: Reworked the diagonal particle-field geometry so the ambient motion
+  now covers the full import/settings viewport, including the upper-right and
+  lower-left areas, while keeping every particle's travel direction aligned
+  from top-left toward bottom-right instead of feeling like a narrow band that
+  only launches from the upper-left corner.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of corner coverage and the
+  stronger full-screen directional flow.
+
+2026-05-31 18:00
+- Summary: Increased the ambient particle density again by substantially
+  raising both the main filament layer and the finer dust layer, so the
+  import/settings background reads much fuller without relying on extra anchor
+  links or layout changes.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of density versus frame
+  rate on the target machine.
+
+2026-05-31 18:06
+- Summary: Raised the ambient particle density one more step by pushing both
+  the filament layer and the dust layer higher again, aiming for a more
+  saturated full-screen flow without changing the approved page layout or the
+  established diagonal motion logic.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of visual density and
+  runtime smoothness on the target machine.
+
+2026-05-31 18:12
+- Summary: Increased all three ambient particle layers together again by
+  raising anchor, filament, and dust counts in both soft and full motion
+  modes, so the import/settings background reads denser across the full screen
+  instead of only through the two lighter moving layers.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of density, line clutter,
+  and frame rate on the target machine.
+
+2026-05-31 18:18
+- Summary: Strengthened the mouse gravity field across the full ambient system
+  by increasing the interaction radius, boosting the pull force on anchors,
+  filaments, and dust, allowing more lateral bend while preserving forward
+  diagonal travel, and letting pointer energy hold a little longer so the field
+  feels more forceful instead of merely cosmetic.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the stronger pull feel
+  and whether the field now reads clearly enough during normal pointer motion.
+
+2026-05-31 19:06
+- Summary: Retuned the gravity field to be tighter but more orbital by reducing
+  its radius, increasing capture persistence so particles stay in curved motion
+  longer before rejoining the diagonal flow, and adding more of only the
+  largest anchor particles instead of increasing the smaller layers again.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the tighter field,
+  longer orbit feel, and the denser large-particle layer.
+
+2026-05-31 19:14
+- Summary: Removed the remaining fixed-track return feel from the ambient
+  particles so attraction now only preserves eventual down-right travel instead
+  of forcing small particles back onto a prior lane, added another increase to
+  the largest anchor particles only, and introduced explicit off-screen recycle
+  logic for particles that have drifted outside the background and can no
+  longer be pulled back by the cursor field.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of small-particle freedom,
+  full-field replenishment, and the denser large-particle layer.
+
+2026-05-31 19:34
+- Summary: Changed the particle replenishment model away from diagonal-lane
+  respawn so particles now refill across the whole background while still
+  keeping an eventual down-right direction, removed the remaining diagonal
+  projection recycle bias, increased only the largest anchor particles again,
+  and further loosened small-particle forward constraints so attraction no
+  longer implies returning to a fixed band.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of full-screen coverage,
+  freer small-particle behavior, and large-particle density.
+
+2026-05-31 19:44
+- Summary: Reworked the cursor gravity interaction into a longer-lived orbital
+  capture so ambient particles can circle the field for multiple loops before
+  gradually resuming their down-right drift, while also removing the leftover
+  diagonal spawn-range helpers that could reintroduce banded motion.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of orbit duration,
+  full-screen particle spread, and the eventual return to right-down flow.
+
+2026-05-31 19:50
+- Summary: Extended the orbital capture feel again so particles now hold their
+  circular scatter motion for longer before dispersing back into the
+  down-right flow, increased the anchor layer further, and slightly reduced
+  anchor-to-anchor link density so the fuller field does not turn into a dirty
+  web of lines.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of orbit longevity,
+  large-particle presence, and line cleanliness.
+
+2026-05-31 19:54
+- Summary: Added a separate orbital-hold state to the ambient particle field so
+  particles keep rotating for longer after being pulled into the cursor field,
+  instead of losing their spin as soon as they drift a little away from the
+  core radius; this specifically targets the request for more complete loops
+  before the particles disperse.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of how many full loops the
+  particles now complete before scattering.
+
+2026-05-31 20:07
+- Summary: Rewrote the cursor gravity behavior into a true orbital field so
+  particles inside the field are driven by tangential rotation around the
+  cursor plus radius correction instead of the previous pull-and-release
+  hybrid, with closer particles rotating faster and with a minimum orbit mix
+  inside the field to keep the rotational behavior explicit.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of stable orbit behavior,
+  center-speed contrast, and whether every in-field particle now clearly
+  circles the cursor.
+
+2026-05-31 20:14
+- Summary: Fixed the orbital field's single-ring behavior by making the orbit
+  system lean much harder on each particle's own preferred radius instead of
+  the shared entry edge, broadening the radius distribution across anchors,
+  filaments, and dust, and tying tangential speed more closely to the locked
+  orbit radius so particles no longer collapse onto one common track.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of multi-band orbit
+  separation and whether the field still feels stable while circling the
+  cursor.
+
+2026-05-31 20:17
+- Summary: Tightened the cursor gravity field so the orbital capture starts
+  closer to the cursor, then aligned the visible pointer ring and pointer-link
+  pickup distance with that smaller physics radius to reduce the feeling that
+  the field extends too far across the page.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of the smaller field range
+  and whether the visible ring now better matches actual particle capture.
+
+2026-05-31 20:22
+- Summary: Stopped previously captured particles from being tugged back across
+  long distances by limiting orbital hold persistence to a tighter recovery
+  band and accelerating release outside that band, then strengthened the
+  center-versus-edge speed contrast so inner orbits now spin noticeably faster
+  than outer ones.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of far-release behavior and
+  whether the inner/outer orbit-speed separation now reads clearly enough.
+
+2026-05-31 20:26
+- Summary: Increased the orbital speed stratification again by making
+  radius-based angular boost and outer-orbit drag much stronger, so particles
+  near the cursor center accelerate more obviously while outer bands rotate
+  with a noticeably slower cadence instead of feeling too uniform.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of whether the center-ring
+  speed now reads distinctly faster than the outer bands.
+
+2026-05-31 20:29
+- Summary: Reworked the orbit-speed formula again so the visual difference now
+  comes from stronger radius-based angular velocity falloff rather than
+  implicitly enlarging the orbit path, aiming to make inner rings complete
+  turns faster while outer rings keep wider but clearly slower rotation.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of whether the speed
+  layering now reads as angular-rate contrast instead of orbit-size contrast.
+
+2026-05-31 20:39
+- Summary: Adopted a banded orbit-distribution model around the cursor by
+  assigning anchors, filaments, and dust into explicit distance bands with
+  per-band caps and per-band speed scales, so the field can use a broader
+  cursor-distance spread without letting one radius zone become overcrowded or
+  visually flatten the speed contrast.
+- Key files changed: `app/static/app.js`, `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 11 tests.
+- Ready to push: yes, after direct localhost review of band separation,
+  per-band particle density, and whether the wider radius spread makes the
+  inner/outer speed difference easier to read.
+
+2026-06-04 21:41
+- Summary: Hid the last per-unit minute display on the resource-detail study
+  map so task execution no longer reads like it has a fixed preset duration,
+  and cleaned the README environment section by deduplicating the Docling
+  offline-prewarm command.
+- Key files changed: `app/static/app.css`, `README.md`,
+  `Changing Description.txt`
+- Verification notes: `node --check app/static/app.js` passed,
+  `.venv\Scripts\python.exe -m compileall app tests` passed, and
+  `.venv\Scripts\python.exe -m unittest` passed with 14 tests.
+- Ready to push: yes, after direct localhost review that the resource detail
+  page no longer implies a fixed task time.
+
+2026-06-05 16:40
+- Summary: Switched the local PDF path onto an English-only EasyOCR route by
+  adding a dedicated bootstrap script with SSL fallback for EasyOCR model
+  downloads, wiring the Docling runtime to use local EasyOCR artifacts by
+  default, adding `easyocr` to project dependencies, correcting the generic
+  Docling bootstrap so it no longer implicitly pulls RapidOCR, and removing
+  previously downloaded RapidOCR / VLM artifacts after the new path was
+  verified.
+- Key files changed: `app/config.py`, `app/services/pdf_ingest.py`,
+  `scripts/bootstrap_docling_models.py`, `scripts/bootstrap_docling_easyocr.py`,
+  `scripts/verify_docling_easyocr.py`, `requirements.txt`, `README.md`,
+  `Changing Description.txt`
+- Verification notes: `.venv\Scripts\python.exe -m py_compile` passed for the
+  updated PDF / bootstrap scripts, `.venv\Scripts\python.exe -m unittest`
+  passed with 15 tests, `.venv\Scripts\python.exe scripts\bootstrap_docling_easyocr.py --allow-insecure-fallback`
+  completed successfully, and `.venv\Scripts\python.exe scripts\verify_docling_easyocr.py output\smoke_english.pdf`
+  produced `output\smoke_english.docling.md` from a local smoke-test PDF.
+- Ready to push: yes, after human confirmation that the English-only EasyOCR
+  route is the intended long-term local PDF path.
+
+2026-06-06 11:20
+- Summary: Finished hardening the PDF ingest flow by fixing an English heading
+  false-positive that split body text like `Section body.` into bogus units,
+  mirroring the same stricter structural-heading rule in Docling hint
+  extraction, adding regression coverage for quoted local PDF paths and failed
+  ingest cleanup, and re-validating the full resource import path with a real
+  Docling + EasyOCR smoke import.
+- Key files changed: `app/services/markdown_ingest.py`,
+  `app/services/pdf_ingest.py`, `app/services/study_service.py`,
+  `tests/test_pdf_ingest.py`, `tests/test_pdf_resource_import.py`,
+  `README.md`, `Changing Description.txt`
+- Verification notes: `.venv\Scripts\python.exe -m unittest` passed with 18
+  tests, `.venv\Scripts\python.exe -m unittest tests.test_pdf_ingest tests.test_pdf_resource_import`
+  passed, and a real call to `create_resource_plan(...)` against
+  `output\smoke_english.pdf` succeeded with local Docling + EasyOCR artifacts,
+  producing a resource directory with `source.md`, `original.pdf`, and
+  `docling\source.md`.
+- Ready to push: yes.
+
+2026-06-06 11:55
+- Summary: Removed user-facing Markdown ingest support so the app now accepts
+  only local PDF imports, deleted the old Markdown file / pasted Markdown form
+  controls and backend branches, kept the internal Markdown segmentation logic
+  that Docling output still depends on, and updated the README to reflect the
+  PDF-only ingest boundary.
+- Key files changed: `app/main.py`, `app/models.py`,
+  `app/services/markdown_ingest.py`, `app/services/study_service.py`,
+  `app/templates/resource_form.html`, `tests/test_pdf_resource_import.py`,
+  `README.md`, `Changing Description.txt`
+- Verification notes: `.venv\Scripts\python.exe -m py_compile` passed for the
+  updated request / ingest files, and `.venv\Scripts\python.exe -m unittest`
+  passed with 18 tests after the PDF-only route edits.
+- Ready to push: yes.
+
+2026-06-06 13:10
+- Summary: Switched the app-side PDF ingest path from local Docling execution
+  to a remote Docling worker contract, added a server-side worker script that
+  converts uploaded PDFs into Markdown plus page-hint metadata, required
+  `DOCLING_REMOTE_URL` for app-side PDF imports so the local machine no longer
+  silently falls back to heavy parsing, and updated the README to document the
+  remote deployment flow.
+- Key files changed: `app/config.py`, `app/services/pdf_ingest.py`,
+  `app/templates/resource_form.html`, `scripts/run_docling_remote_worker.py`,
+  `tests/test_pdf_ingest_remote.py`, `requirements.txt`, `README.md`,
+  `Changing Description.txt`
+- Verification notes: the new remote ingest test module
+  `.\.venv\Scripts\python.exe -m unittest tests.test_pdf_ingest_remote`
+  passed with 3 tests, and non-database unit suites were also spot-checked with
+  the system Python runner. Full `.venv`-wide SQLAlchemy-dependent test
+  execution could not be revalidated in this task because importing
+  `sqlalchemy` in the current `.venv` shell process stalled instead of
+  returning, which appears to be an environment/runtime issue rather than a
+  failure in the new remote-ingest code path.
+- Ready to push: yes, if you are comfortable configuring the remote worker URL
+  before the next PDF import.
+
+2026-06-07 00:35
+- Summary: Replaced the custom remote-worker protocol with a direct official
+  `docling-serve` integration by sending PDFs to the official
+  `POST /v1/convert/source` API using Base64 `FileSource` payloads, consuming
+  `document.md_content` plus `document.json_content`, extracting section/page
+  hints from the returned Docling JSON structure, deleting the obsolete custom
+  worker script, and updating the README to document the official service flow.
+- Key files changed: `app/config.py`, `app/services/pdf_ingest.py`,
+  `app/templates/resource_form.html`, `tests/test_pdf_ingest_remote.py`,
+  `README.md`, `Changing Description.txt`
+- Verification notes: `python -X utf8` syntax compilation passed for
+  `app/config.py`, `app/services/pdf_ingest.py`, and
+  `tests/test_pdf_ingest_remote.py`; `tests.test_pdf_ingest_remote`,
+  `tests.test_pdf_ingest`, `tests.test_markdown_ingest`, and
+  `tests.test_templates` all passed with the system Python unittest runner.
+- Ready to push: yes.
+
+2026-06-07 10:54
+- Summary: Switched the app back to a local-first Docling ingest path by
+  making `load_pdf_source(...)` default to the local converter again, keeping
+  remote `docling-serve` only as an explicit `DOCLING_PDF_BACKEND=remote`
+  opt-in, adding local runtime flags for OCR and formula enrichment so the
+  default path is lighter on this machine, aligning the standalone
+  `verify_docling_easyocr.py` smoke script with the same lightweight defaults,
+  and updating the README/import-page copy to match the restored local
+  deployment flow.
+- Key files changed: `app/config.py`, `app/services/pdf_ingest.py`,
+  `app/templates/resource_form.html`, `scripts/verify_docling_easyocr.py`,
+  `tests/test_pdf_ingest_remote.py`, `README.md`, `Changing Description.txt`
+- Verification notes: `.venv\Scripts\python.exe -m compileall app tests`
+  passed, `.venv\Scripts\python.exe -m unittest tests.test_pdf_ingest
+  tests.test_pdf_ingest_remote tests.test_pdf_resource_import
+  tests.test_markdown_ingest tests.test_templates` passed with 11 tests,
+  `.venv\Scripts\python.exe -m py_compile scripts\verify_docling_easyocr.py`
+  passed, and a real local `load_pdf_source(...)` smoke run against a
+  temporary one-page English PDF succeeded with `DOCLING_PDF_BACKEND=local`,
+  `DOCLING_PDF_OCR_ENABLED=0`, and artifact output written under a temporary
+  `docling\source.md` path.
+- Ready to push: yes.
+
+2026-06-07 11:23
+- Summary: Added a formal PDF-to-task planning program by introducing a new
+  CLI script that can either import a PDF directly or accept an existing
+  Docling `source.md + outline.json` structure, then automatically create the
+  resource, split study units, schedule daily tasks, and print the generated
+  study plan. Also refactored the backend so task generation can be driven from
+  already-parsed PDF structure instead of always re-running Docling, and
+  tightened the markdown splitter to drop title-page noise plus terminal
+  reference sections from study-task generation.
+- Key files changed: `app/services/markdown_ingest.py`,
+  `app/services/study_service.py`, `scripts/import_pdf_tasks.py`,
+  `tests/test_markdown_ingest.py`, `tests/test_pdf_resource_import.py`,
+  `README.md`, `Changing Description.txt`
+- Verification notes: `.venv\Scripts\python.exe -m unittest
+  tests.test_markdown_ingest tests.test_pdf_ingest
+  tests.test_pdf_ingest_remote tests.test_pdf_resource_import
+  tests.test_templates` passed with 14 tests, `.venv\Scripts\python.exe -m
+  py_compile scripts\import_pdf_tasks.py` passed, and
+  `.venv\Scripts\python.exe scripts\import_pdf_tasks.py
+  "C:\Users\user\Desktop\Lemmas in olympiad geometry 1.pdf"
+  --docling-markdown ".\output\lemmas_geometry_test\docling\source.md"
+  --docling-outline ".\output\lemmas_geometry_test\docling\outline.json"`
+  succeeded, replacing the prior resource and generating a 10-unit study plan.
+- Ready to push: yes.
+
+2026-06-09 22:21
+- Summary: Removed inactive RecallLoom residue from the project root,
+  including the `.recallloom/` store, its support cache, and the one-off seed
+  and advisory files, then updated the README so future agents do not treat
+  RecallLoom as an active continuity layer.
+- Key files changed: `README.md`, `Changing Description.txt`, `.recallloom/`
+  (removed), `.recallloom-support-cache/` (removed),
+  `recallloom-seed-context-brief.md` (removed),
+  `recallloom-seed-rolling-summary.md` (removed),
+  `recallloom-seed-update-protocol.md` (removed),
+  `recallloom-support-advisory.json` (removed)
+- Verification notes: Confirmed the running code paths still reference
+  `data/state/`, `output/`, and the Docling artifact directory, while no
+  application, script, or test module imports or references RecallLoom.
+- Ready to push: yes, because this cleanup only removed inactive continuity
+  residue and did not touch runtime code or state.

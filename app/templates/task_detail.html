@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block page_name %}study-task{% endblock %}
+{% block title %}{{ task.unit.title }} | 學習監督器{% endblock %}
+
+{% block content %}
+<section class="hero-panel detail-hero">
+  <div class="detail-hero-copy">
+    <div class="hero-topline">
+      <span class="signal-pill">學習任務</span>
+      <span class="hero-date">{{ task.due_date.isoformat() }}</span>
+    </div>
+    <p class="eyebrow">準備開始</p>
+    <h1>{{ task.unit.title }}</h1>
+    <p class="hero-copy">
+      {% if task.unit.resource.learning_mode == "dictation" %}
+      先憑記憶重建內容，再使用 PDF 頁面核對你遺漏的部分。
+      {% else %}
+      先仔細閱讀相關頁面，再留下精簡回報，證明你已經理解這段內容。
+      {% endif %}
+    </p>
+    <div class="hero-inline-chips">
+      <span class="micro-chip">{{ task.unit.resource.title }}</span>
+      <span class="micro-chip">單元 {{ task.unit.order_index }}</span>
+      <span class="micro-chip">{{ task.unit.content_type_label }}</span>
+      {% if task.unit.page_range_label %}
+      <span class="micro-chip">{{ task.unit.page_range_label }}</span>
+      {% endif %}
+      <span class="micro-chip">{{ task.unit.resource.learning_mode_label }}</span>
+    </div>
+  </div>
+
+  <div class="mini-stat-grid">
+    <article class="mini-stat-card">
+      <span>資源</span>
+      <strong>{{ task.unit.resource.title }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>頁碼</span>
+      <strong>{{ task.unit.page_range_label or "未對應頁碼" }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>內容類型</span>
+      <strong>{{ task.unit.content_type_label }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>學習模式</span>
+      <strong>{{ task.unit.resource.learning_mode_label }}</strong>
+    </article>
+  </div>
+</section>
+
+<section class="detail-grid">
+  <article class="panel reading-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">原始頁面</p>
+        <h2>閱讀原始 PDF 頁面</h2>
+      </div>
+    </div>
+    <div class="reading-stage">
+      <div class="study-sheet study-sheet-{{ app_settings.study_material_theme }}{% if pdf_available %} study-sheet-pdf{% endif %}">
+        {% if pdf_available %}
+        <div class="pdf-page-stack" aria-label="PDF 頁面預覽">
+          {% for page_number in pdf_page_numbers %}
+          <figure class="pdf-page-frame">
+            <img
+              src="/resources/{{ task.unit.resource.id }}/pdf-pages/{{ page_number }}.png"
+              alt="{{ task.unit.title }} - 第 {{ page_number }} 頁"
+              class="pdf-page-image"
+              loading="lazy"
+              decoding="async"
+            >
+            <figcaption>第 {{ page_number }} 頁</figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="markdown-body markdown-body-sheet">{{ content_html }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+
+  <article class="panel evidence-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">學習回報</p>
+        <h2>完成這次學習區塊</h2>
+      </div>
+    </div>
+
+    <section
+      class="task-timer-panel"
+      data-task-timer
+      data-task-id="{{ task.id }}"
+      data-task-title="{{ task.unit.title }}"
+      data-default-minutes="25"
+    >
+      <div class="task-timer-head">
+        <div>
+          <p class="eyebrow">專注計時器</p>
+          <h3>啟動學習計時</h3>
+        </div>
+        <span class="status-pill status-scheduled" data-timer-state>未開始</span>
+      </div>
+
+      <div class="task-timer-shell">
+        <div class="task-timer-orb" data-timer-orb>
+          <strong data-timer-display>25:00</strong>
+        </div>
+
+        <div class="task-timer-controls">
+          <label class="task-timer-input">
+            <span>分鐘</span>
+            <input type="number" min="1" max="240" step="1" value="25" data-timer-minutes>
+          </label>
+
+          <div class="task-timer-actions">
+            <button type="button" class="button magnetic-button task-mini-button" data-timer-start>開始計時</button>
+            <button type="button" class="button button-secondary task-mini-button" data-timer-pause disabled>暫停</button>
+            <button type="button" class="button button-secondary task-mini-button" data-timer-finish disabled>提前結束</button>
+            <button type="button" class="button button-secondary task-mini-button" data-timer-extend="10" disabled>增加 10 分鐘</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="task-timer-alert" data-timer-alert hidden>
+        <strong>時間到了。</strong>
+        <p>你可以再延長 10 分鐘，或直接填寫學習回報。</p>
+      </div>
+    </section>
+
+    <div class="protocol-stack compact-protocol">
+      <article class="protocol-card">
+        <strong>{% if task.unit.resource.learning_mode == "dictation" %}先重建內容{% else %}請用自己的話表達{% endif %}</strong>
+        <p>
+          {% if task.unit.resource.learning_mode == "dictation" %}
+          目標是重建，而不是只是眼熟。先嘗試重述關鍵命題、結構或公式，再回頭查看原文。
+          {% else %}
+          你的總結應該能證明你已經能使用這段材料，而不只是看過。
+          {% endif %}
+        </p>
+      </article>
+
+      <article class="protocol-card">
+        <strong>寫下卡住的位置</strong>
+        <p>現在把困惑記下來，之後的複習才能精準打到薄弱點。</p>
+      </article>
+
+      {% if has_math_content %}
+      <article class="protocol-card">
+        {% if app_settings.render_math_enabled %}
+        <strong>公式排版已啟用</strong>
+        <p>這個頁面的數學公式會直接以排版形式顯示，而不是保留原始 Markdown 語法。</p>
+        {% else %}
+        <strong>公式排版未啟用</strong>
+        <p>這個單元包含數學內容。如果你希望公式以排版形式顯示，請到設定中開啟公式排版。</p>
+        {% endif %}
+      </article>
+      {% endif %}
+    </div>
+
+    <form method="post" action="/tasks/{{ task.id }}/complete" class="checkin-form" data-task-complete-form>
+      <label>
+        <span>{% if task.unit.resource.learning_mode == "dictation" %}你從記憶中重建出了什麼？{% else %}你學到了什麼？{% endif %}</span>
+        <textarea
+          name="summary_text"
+          rows="6"
+          placeholder="{% if task.unit.resource.learning_mode == 'dictation' %}盡可能完整地寫回命題、結構、證明思路或公式。{% else %}請用自己的話總結核心觀念。{% endif %}"
+          required
+        ></textarea>
+      </label>
+
+      <label>
+        <span>還有哪些地方不清楚？</span>
+        <textarea
+          name="reflection_note"
+          rows="4"
+          placeholder="選填：記下你的缺口、誤解或下一步。"
+        ></textarea>
+      </label>
+
+      <div class="field-grid">
+        <label>
+          <span>信心程度</span>
+          <select name="confidence_score">
+            <option value="1">1 | 很弱</option>
+            <option value="2">2 | 不穩</option>
+            <option value="3" selected>3 | 可用</option>
+            <option value="4">4 | 穩固</option>
+            <option value="5">5 | 可獨立講解</option>
+          </select>
+        </label>
+
+        <label>
+          <span>完成度</span>
+          <select name="completion_percent">
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100" selected>100%</option>
+          </select>
+        </label>
+      </div>
+
+      <button class="button magnetic-button" type="submit">標記學習完成</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

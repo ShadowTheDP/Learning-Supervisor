@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block page_name %}resource-form{% endblock %}
+{% block title %}匯入資料 | 學習監督器{% endblock %}
+
+{% block content %}
+<section class="single-column-shell tool-page-shell">
+  <article class="panel form-panel tool-panel">
+    <div class="tool-page-head">
+      <div class="tool-page-head-copy">
+        <h1 class="tool-page-title">匯入資料</h1>
+        <p class="tool-page-copy">
+          設定標題、截止日期與本地 PDF 路徑。系統會分析 PDF 結構、保留章節與頁碼對應，並自動建立學習任務。
+        </p>
+      </div>
+    </div>
+
+    {% if error_message %}
+      <div class="notice-error">{{ error_message }}</div>
+    {% endif %}
+
+    <form
+      method="post"
+      action="/resources"
+      class="resource-form resource-form-structured"
+      data-loading-submit
+      data-loading-text="正在導入 PDF，請稍候..."
+    >
+      <section class="form-section">
+        <div class="form-section-head">
+          <h3>基本資料</h3>
+          <p>設定這份 PDF 的標題、截止日期、優先級與學習模式。</p>
+        </div>
+
+        <div class="field-grid">
+          <label>
+            <span>標題</span>
+            <input
+              type="text"
+              name="title"
+              value="{{ form_values.title if form_values else '' }}"
+              placeholder="例如：奧林匹克幾何引理，第 1 部分"
+              required
+            >
+          </label>
+
+          <label>
+            <span>截止日期</span>
+            <input
+              type="date"
+              name="deadline"
+              value="{{ form_values.deadline if form_values else today.isoformat() }}"
+              required
+            >
+          </label>
+
+          <label>
+            <span>優先級</span>
+            {% set current_priority = form_values.priority if form_values else app_settings.default_priority %}
+            <select name="priority">
+              <option value="1" {% if current_priority == 1 %}selected{% endif %}>1 | 低</option>
+              <option value="2" {% if current_priority == 2 %}selected{% endif %}>2 | 中</option>
+              <option value="3" {% if current_priority == 3 %}selected{% endif %}>3 | 高</option>
+            </select>
+          </label>
+
+          <label>
+            <span>學習模式</span>
+            {% set current_learning_mode = form_values.learning_mode if form_values else app_settings.default_learning_mode %}
+            <select name="learning_mode">
+              <option value="application" {% if current_learning_mode == 'application' %}selected{% endif %}>
+                應用學習 | 重點是理解內容並能實際使用
+              </option>
+              <option value="dictation" {% if current_learning_mode == 'dictation' %}selected{% endif %}>
+                默寫學習 | 重點是能從記憶中重建內容
+              </option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <div class="form-section-head">
+          <h3>補充說明</h3>
+          <p>可選填。說明這份 PDF 的用途，或你希望系統如何理解這份資料。</p>
+        </div>
+
+        <label>
+          <span>描述</span>
+          <textarea
+            name="description"
+            rows="4"
+            placeholder="例如：希望系統依章節建立任務，並保留對應頁碼。"
+          >{{ form_values.description if form_values else '' }}</textarea>
+        </label>
+      </section>
+
+      <section class="form-section">
+        <div class="form-section-head">
+          <h3>PDF 來源</h3>
+          <p>請填入本地 PDF 路徑。系統會保留原始 PDF，之後任務頁左側可直接顯示對應頁面。</p>
+        </div>
+
+        <fieldset class="source-picker">
+          <legend>PDF</legend>
+
+          <label>
+            <span>本地檔案路徑</span>
+            <input
+              type="text"
+              name="source_path"
+              value="{{ form_values.source_path if form_values else '' }}"
+              placeholder="例如：C:\books\geometry.pdf"
+              required
+            >
+          </label>
+        </fieldset>
+      </section>
+
+      <div class="form-actions">
+        <button class="button magnetic-button" type="submit" data-loading-text="正在導入 PDF，請稍候...">建立學習計畫</button>
+        <p class="task-subtle">
+          匯入完成後，你仍可在設定頁調整整體學習與顯示偏好。
+        </p>
+      </div>
+
+      <div class="submit-loader-overlay" data-submit-loader hidden>
+        <div class="submit-loader-card" role="status" aria-live="polite" aria-atomic="true">
+          <div class="submit-loader-spinner" aria-hidden="true"></div>
+          <div class="submit-loader-copy">
+            <strong>正在分析 PDF</strong>
+            <p>系統正在抽取結構、建立單元並生成任務。這一步可能需要一些時間，請不要關閉頁面。</p>
+          </div>
+        </div>
+      </div>
+    </form>
+  </article>
+</section>
+{% endblock %}

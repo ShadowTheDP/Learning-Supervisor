@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block page_name %}review-task{% endblock %}
+{% block title %}複習 {{ review.unit.title }} | 學習監督器{% endblock %}
+
+{% block content %}
+<section class="hero-panel detail-hero">
+  <div class="detail-hero-copy">
+    <div class="hero-topline">
+      <span class="signal-pill">複習任務</span>
+      <span class="hero-date">{{ review.due_date.isoformat() }}</span>
+    </div>
+    <p class="eyebrow">記憶檢查</p>
+    <h1>{{ review.unit.title }}</h1>
+    <p class="hero-copy">
+      {% if review.unit.resource.learning_mode == "dictation" %}
+      先從記憶中回想內容結構，再對照原始 PDF 頁面核對。
+      {% else %}
+      先嘗試重述核心想法，再閱讀原始頁面，讓這次複習更真實反映你的保留程度。
+      {% endif %}
+    </p>
+    <div class="hero-inline-chips">
+      <span class="micro-chip">{{ review.unit.resource.title }}</span>
+      <span class="micro-chip">{{ review.interval_days }} 天間隔</span>
+      <span class="micro-chip">單元 {{ review.unit.order_index }}</span>
+      <span class="micro-chip">{{ review.unit.content_type_label }}</span>
+      {% if review.unit.page_range_label %}
+      <span class="micro-chip">{{ review.unit.page_range_label }}</span>
+      {% endif %}
+      <span class="micro-chip">{{ review.unit.resource.learning_mode_label }}</span>
+    </div>
+  </div>
+
+  <div class="mini-stat-grid">
+    <article class="mini-stat-card">
+      <span>資源</span>
+      <strong>{{ review.unit.resource.title }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>間隔</span>
+      <strong>{{ review.interval_days }} 天</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>內容類型</span>
+      <strong>{{ review.unit.content_type_label }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>學習模式</span>
+      <strong>{{ review.unit.resource.learning_mode_label }}</strong>
+    </article>
+  </div>
+</section>
+
+<section class="detail-grid">
+  <article class="panel reading-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">原始頁面</p>
+        <h2>對照原始 PDF</h2>
+      </div>
+    </div>
+    <div class="reading-stage">
+      <div class="study-sheet study-sheet-{{ app_settings.study_material_theme }}{% if pdf_available %} study-sheet-pdf{% endif %}">
+        {% if pdf_available %}
+        <div class="pdf-page-stack" aria-label="PDF 頁面預覽">
+          {% for page_number in pdf_page_numbers %}
+          <figure class="pdf-page-frame">
+            <img
+              src="/resources/{{ review.unit.resource.id }}/pdf-pages/{{ page_number }}.png"
+              alt="{{ review.unit.title }} - 第 {{ page_number }} 頁"
+              class="pdf-page-image"
+              loading="lazy"
+              decoding="async"
+            >
+            <figcaption>第 {{ page_number }} 頁</figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="markdown-body markdown-body-sheet">{{ content_html }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+
+  <article class="panel evidence-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">複習回報</p>
+        <h2>還保留了多少？</h2>
+      </div>
+    </div>
+
+    <div class="protocol-stack compact-protocol">
+      <article class="protocol-card">
+        <strong>{% if review.unit.resource.learning_mode == "dictation" %}先回想再核對{% else %}先重述再閱讀{% endif %}</strong>
+        <p>
+          {% if review.unit.resource.learning_mode == "dictation" %}
+          這裡要看的不是你能不能認得，而是你能不能從記憶中重建。
+          {% else %}
+          請先寫出你還記得的內容，再回頭看 PDF，這樣信心分數才有意義。
+          {% endif %}
+        </p>
+      </article>
+
+      <article class="protocol-card">
+        <strong>精確指出缺口</strong>
+        <p>請具體說明忘掉的是定理陳述、證明步驟、公式，還是觀念之間的連接。</p>
+      </article>
+
+      {% if has_math_content %}
+      <article class="protocol-card">
+        {% if app_settings.render_math_enabled %}
+        <strong>公式排版已啟用</strong>
+        <p>這個單元的公式會直接以排版形式顯示在頁面上。</p>
+        {% else %}
+        <strong>公式排版未啟用</strong>
+        <p>這個單元包含公式。如果你希望以排版形式顯示，請到設定中開啟。</p>
+        {% endif %}
+      </article>
+      {% endif %}
+    </div>
+
+    <form method="post" action="/reviews/{{ review.id }}/complete" class="checkin-form">
+      <label>
+        <span>{% if review.unit.resource.learning_mode == "dictation" %}你還能重建出什麼？{% else %}你還記得什麼？{% endif %}</span>
+        <textarea
+          name="summary_text"
+          rows="6"
+          placeholder="{% if review.unit.resource.learning_mode == 'dictation' %}在查看原始內容前，先寫下你還能回想出的命題、公式、證明思路或結構。{% else %}先寫下你在重新閱讀 PDF 前，還能重述的核心觀念。{% endif %}"
+          required
+        ></textarea>
+      </label>
+
+      <label>
+        <span>具體忘掉了什麼？</span>
+        <textarea
+          name="reflection_note"
+          rows="4"
+          placeholder="選填：記下記憶斷掉的精確位置。"
+        ></textarea>
+      </label>
+
+      <label>
+        <span>複習後信心</span>
+        <select name="confidence_score">
+          <option value="1">1 | 幾乎忘光</option>
+          <option value="2">2 | 回想很弱</option>
+          <option value="3" selected>3 | 可用</option>
+          <option value="4">4 | 穩定</option>
+          <option value="5">5 | 非常穩固</option>
+        </select>
+      </label>
+
+      <button class="button magnetic-button" type="submit">完成複習</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

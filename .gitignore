@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+data/state/*.db
+data/state/*.sqlite3
+data/state/*.pid
+data/state/docling_artifacts/
+data/state/logs/
+!data/state/.gitkeep
+data/resources/*
+!data/resources/.gitkeep
+output/*
+!output/.gitkeep

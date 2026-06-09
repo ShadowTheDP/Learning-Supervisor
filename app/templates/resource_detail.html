@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% macro render_unit_card(unit, today) %}
+  {% set study_task = unit.daily_tasks[0] if unit.daily_tasks else None %}
+  <article class="unit-card">
+    <div class="unit-head">
+      <div>
+        <p class="task-meta">
+          <span>單元 {{ unit.order_index }}</span>
+          <span>{{ unit.word_count }} 詞</span>
+          <span>{{ unit.content_type_label }}</span>
+          {% if unit.page_range_label %}
+          <span>{{ unit.page_range_label }}</span>
+          {% endif %}
+        </p>
+        <h3>{{ unit.title }}</h3>
+      </div>
+      <span class="status-pill status-{{ unit.status }}">{{ unit.status_label }}</span>
+    </div>
+
+    {% if study_task %}
+    <div class="resource-inline-actions">
+      <p class="task-subtle">首次學習任務日期：{{ study_task.due_date.isoformat() }}</p>
+      {% if study_task.status == "completed" %}
+      <span class="mini-success">學習已完成</span>
+      {% else %}
+      <a class="button magnetic-button" href="/tasks/{{ study_task.id }}">開啟學習任務</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if unit.review_tasks %}
+    <div class="review-chip-row">
+      {% set review_ns = namespace(next_due=None) %}
+      {% for review in unit.review_tasks %}
+        {% if review.status == "completed" or review.due_date <= today %}
+        <a class="review-chip {% if review.status == 'completed' %}review-chip-done{% endif %}" href="/reviews/{{ review.id }}">
+          {{ review.interval_days }} 天 | {{ review.due_date.isoformat() }}
+        </a>
+        {% elif review_ns.next_due is none %}
+        {% set review_ns.next_due = review.due_date %}
+        {% endif %}
+      {% endfor %}
+      {% if review_ns.next_due %}
+      <span class="review-chip review-chip-locked">下次複習將於 {{ review_ns.next_due.isoformat() }} 解鎖</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if unit.check_ins %}
+    <div class="checkin-log">
+      {% for checkin in unit.check_ins[-2:] %}
+      <article>
+        <p class="task-meta">
+          <span>{{ checkin.kind_label }}</span>
+          <span>信心 {{ checkin.confidence_score }}/5</span>
+          <span>{{ checkin.completed_at.date().isoformat() }}</span>
+        </p>
+        <p>{{ checkin.summary_text }}</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </article>
+{% endmacro %}
+
+{% block page_name %}resource-detail{% endblock %}
+{% block title %}{{ resource.title }} | 學習監督器{% endblock %}
+
+{% block content %}
+{% set completed_units = resource.learning_units | selectattr("status", "equalto", "completed") | list | length %}
+{% set total_units = resource.learning_units | length %}
+{% set visible_units = resource.learning_units[:10] %}
+{% set hidden_units = resource.learning_units[10:] %}
+
+<section class="hero-panel detail-hero">
+  <div class="detail-hero-copy">
+    <div class="hero-topline">
+      <span class="signal-pill">進行中</span>
+      <span class="hero-date">{{ resource.study_plan.deadline.isoformat() }}</span>
+    </div>
+    <p class="eyebrow">資源總覽</p>
+    <h1>{{ resource.title }}</h1>
+    <p class="hero-copy">{{ resource.description or "這份資源目前還沒有補充說明。" }}</p>
+    <div class="hero-inline-chips">
+      <span class="micro-chip">{{ resource.source_type_label }}</span>
+      <span class="micro-chip">優先級 {{ resource.priority }}</span>
+      <span class="micro-chip">{{ resource.learning_mode_label }}</span>
+      <span class="micro-chip status-{{ resource.status }}">{{ resource.status_label }}</span>
+    </div>
+  </div>
+
+  <div class="mini-stat-grid">
+    <article class="mini-stat-card">
+      <span>狀態</span>
+      <strong>{{ resource.status_label }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>單元數</span>
+      <strong>{{ total_units }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>截止日期</span>
+      <strong>{{ resource.study_plan.deadline.isoformat() }}</strong>
+    </article>
+    <article class="mini-stat-card">
+      <span>開始日期</span>
+      <strong>{{ resource.study_plan.start_date.isoformat() }}</strong>
+    </article>
+  </div>
+</section>
+
+<section class="detail-grid resource-overview-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">進度</p>
+        <h2>目前學習狀態</h2>
+      </div>
+      <a class="button button-secondary magnetic-button" href="/">返回儀表板</a>
+    </div>
+
+    <div class="protocol-stack">
+      <article class="protocol-card">
+        <strong>已完成 {{ completed_units }}/{{ total_units }} 個單元</strong>
+        <p>只有在學習任務完成並提交回報後，單元才會被視為完成。</p>
+      </article>
+      <article class="protocol-card">
+        <strong>尚有 {{ total_units - completed_units }} 個單元進行中</strong>
+        <p>頁面會先直接顯示前面的單元，其餘單元收納在可展開區塊中。</p>
+      </article>
+    </div>
+
+    <div class="progress-bar large-progress">
+      <span style="width: {{ (completed_units / (total_units or 1) * 100) | round(0) }}%"></span>
+    </div>
+  </article>
+
+  <aside class="panel side-note-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">流程說明</p>
+        <h2>這份資源的學習方式</h2>
+      </div>
+    </div>
+
+    <div class="protocol-stack">
+      <article class="protocol-card">
+        <strong>先學習，再複習</strong>
+        <p>每個單元都先從學習任務開始，只有完成學習之後，對應複習任務才會解鎖。</p>
+      </article>
+      <article class="protocol-card">
+        <strong>{{ resource.learning_mode_label }}</strong>
+        <p>
+          {% if resource.learning_mode == "dictation" %}
+          這份資源強調先從記憶中重建內容，再回頭核對原始材料。
+          {% else %}
+          這份資源強調理解內容，並能在之後實際運用。
+          {% endif %}
+        </p>
+      </article>
+      <article class="protocol-card">
+        <strong>排程以截止日為準</strong>
+        <p>系統已不再使用每日學習容量，而是把單元分配到截止日前可用的學習日期中。</p>
+      </article>
+    </div>
+  </aside>
+</section>
+
+<section class="panel study-map-panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">學習地圖</p>
+      <h2>單元、學習任務與複習任務</h2>
+    </div>
+    <span class="panel-caption">顯示 {{ visible_units|length }} / {{ total_units }}</span>
+  </div>
+
+  <div class="unit-stack">
+    {% for unit in visible_units %}
+    {{ render_unit_card(unit, today) }}
+    {% endfor %}
+  </div>
+
+  {% if hidden_units %}
+  <section class="queue-expander" data-expander>
+    <button class="queue-expander-toggle" type="button" data-expander-toggle aria-expanded="false">
+      <span>展開剩餘 {{ hidden_units|length }} 個單元</span>
+      <span class="queue-expander-mark" aria-hidden="true">+</span>
+    </button>
+    <div class="queue-overflow-shell" data-expander-body hidden>
+      <div class="unit-stack queue-overflow-list">
+        {% for unit in hidden_units %}
+        {{ render_unit_card(unit, today) }}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+</section>
+{% endblock %}

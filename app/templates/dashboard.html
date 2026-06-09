@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+
+{% block page_name %}dashboard{% endblock %}
+{% block title %}儀表板 | 學習監督器{% endblock %}
+
+{% block content %}
+{% set next_study = summary.study_due[0] if summary.study_due else None %}
+{% set next_review = summary.review_due[0] if summary.review_due else None %}
+{% set visible_study = summary.study_due[:app_settings.queue_preview_count_study] %}
+{% set hidden_study = summary.study_due[app_settings.queue_preview_count_study:] %}
+{% set visible_review = summary.review_due[:app_settings.queue_preview_count_review] %}
+{% set hidden_review = summary.review_due[app_settings.queue_preview_count_review:] %}
+{% set dashboard_hero_title_lines = dashboard_hero_title_lines|default(["今日學習總覽"]) %}
+{% set dashboard_major_event = dashboard_major_event|default({
+  "has_event": False,
+  "content": "",
+  "date_label": "",
+  "message": "最近沒有重大事件",
+}) %}
+
+<section class="hero-panel dashboard-hero">
+  <div class="hero-copy-column">
+    <div class="hero-topline">
+      <span class="signal-pill">今日總覽</span>
+      <span class="hero-date">{{ summary.today.isoformat() }}</span>
+      <span class="micro-chip">{{ summary.active_resource_count }} 份進行中資源</span>
+    </div>
+    <div class="hero-kicker-row">
+      <p class="eyebrow">個人面板</p>
+      <a class="inline-edit-link" href="/settings#dashboard-customization">修改標題</a>
+    </div>
+
+    <h1
+      class="hero-title dashboard-hero-title-custom"
+      id="hero-title"
+      style="--dashboard-hero-title-max-size: {{ app_settings.dashboard_hero_title_size_px|default(72) }}px;"
+    >
+      {% for line in dashboard_hero_title_lines %}
+        <span class="hero-line">{{ line }}</span>
+      {% endfor %}
+    </h1>
+
+    {% if summary.overdue_count > 0 %}
+      <p class="hero-copy">
+        目前最重要的是先把已經滑出節奏的內容拉回來。下方隊列已按截止日期與優先級排好，直接從第一個開始即可。
+      </p>
+    {% elif summary.due_today_count > 0 %}
+      <p class="hero-copy">
+        今天的重點很明確：先處理今天到期的內容，再決定是否要往後推進更多單元。
+      </p>
+    {% elif next_study %}
+      <p class="hero-copy">
+        目前沒有新的阻塞，照著下一步繼續往前推進即可。
+      </p>
+    {% elif next_review %}
+      <p class="hero-copy">
+        學習佇列已清空，接下來更重要的是把已經學過的東西留下來。
+      </p>
+    {% else %}
+      <p class="hero-copy">
+        你可以匯入新的資料，或回頭整理現有資源的學習節奏。
+      </p>
+    {% endif %}
+
+    <div class="hero-actions">
+      <a class="button magnetic-button" href="/resources/new">匯入新資源</a>
+      <a class="button button-secondary magnetic-button" href="#mission-atlas">查看當前資源</a>
+    </div>
+
+    <div class="dashboard-summary-grid">
+      <article class="dashboard-summary-card">
+        <span>待處理</span>
+        <strong class="count-up" data-value="{{ summary.due_today_count + summary.overdue_count }}">{{ summary.due_today_count + summary.overdue_count }}</strong>
+        <small>學習 {{ summary.study_due|length }} / 複習 {{ summary.review_due|length }}</small>
+      </article>
+      <article class="dashboard-summary-card">
+        <span>已逾期</span>
+        <strong class="count-up" data-value="{{ summary.overdue_count }}">{{ summary.overdue_count }}</strong>
+        <small>需要優先追回</small>
+      </article>
+      <article class="dashboard-summary-card">
+        <span>今日完成</span>
+        <strong class="count-up" data-value="{{ summary.completed_today_count }}">{{ summary.completed_today_count }}</strong>
+        <small>今天已留下回報</small>
+      </article>
+      <article class="dashboard-summary-card">
+        <span>活躍資源</span>
+        <strong class="count-up" data-value="{{ summary.active_resource_count }}">{{ summary.active_resource_count }}</strong>
+        <small>仍在推進中的資料</small>
+      </article>
+    </div>
+  </div>
+
+  <div class="hero-side-column">
+    <article class="focus-card focus-card-dashboard">
+      <div class="focus-card-head">
+        <div>
+          <p class="eyebrow">下一步</p>
+          <h2 class="focus-title">
+            {% if next_study %}
+              當前優先學習單元
+            {% elif next_review %}
+              當前優先複習單元
+            {% else %}
+              當前沒有待辦
+            {% endif %}
+          </h2>
+        </div>
+        <span class="status-pill status-live">
+          {% if next_study %}
+            學習
+          {% elif next_review %}
+            複習
+          {% else %}
+            空檔
+          {% endif %}
+        </span>
+      </div>
+
+      {% if next_study %}
+        {% set focus_resource = next_study.unit.resource %}
+        {% set focus_completed_units = focus_resource.learning_units | selectattr("status", "equalto", "completed") | list | length %}
+        <p class="focus-resource-line">{{ focus_resource.title }}</p>
+        <h3>{{ next_study.unit.title }}</h3>
+        <p class="task-subtle">
+          先把這個單元處理完，再回頭看後面的任務隊列。
+        </p>
+        <div class="focus-summary-grid">
+          <article class="focus-summary-card">
+            <span>單元</span>
+            <strong>{{ next_study.unit.order_index }}</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>內容</span>
+            <strong>{{ next_study.unit.content_type_label }}</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>頁碼</span>
+            <strong>{{ next_study.unit.page_range_label or "未標頁碼" }}</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>進度</span>
+            <strong>{{ focus_completed_units }}/{{ focus_resource.learning_units|length }}</strong>
+          </article>
+        </div>
+        <div class="focus-actions">
+          <a class="button magnetic-button" href="/tasks/{{ next_study.id }}">開始學習任務</a>
+          <span class="task-state">截止 {{ next_study.due_date.isoformat() }}</span>
+        </div>
+      {% elif next_review %}
+        {% set focus_resource = next_review.unit.resource %}
+        {% set focus_completed_units = focus_resource.learning_units | selectattr("status", "equalto", "completed") | list | length %}
+        <p class="focus-resource-line">{{ focus_resource.title }}</p>
+        <h3>{{ next_review.unit.title }}</h3>
+        <p class="task-subtle">
+          先回想，再對照原文，把這段記憶穩住。
+        </p>
+        <div class="focus-summary-grid">
+          <article class="focus-summary-card">
+            <span>單元</span>
+            <strong>{{ next_review.unit.order_index }}</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>間隔</span>
+            <strong>{{ next_review.interval_days }} 天</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>模式</span>
+            <strong>{{ next_review.unit.resource.learning_mode_label }}</strong>
+          </article>
+          <article class="focus-summary-card">
+            <span>進度</span>
+            <strong>{{ focus_completed_units }}/{{ focus_resource.learning_units|length }}</strong>
+          </article>
+        </div>
+        <div class="focus-actions">
+          <a class="button magnetic-button" href="/reviews/{{ next_review.id }}">開始複習任務</a>
+          <span class="task-state">截止 {{ next_review.due_date.isoformat() }}</span>
+        </div>
+      {% else %}
+        <p class="task-subtle">
+          現在沒有到期或逾期的學習、複習任務。你可以匯入新資料，或往下查看當前資源。
+        </p>
+        <div class="focus-actions">
+          <a class="button magnetic-button" href="/resources/new">匯入新資源</a>
+        </div>
+      {% endif %}
+    </article>
+
+    <article class="focus-card event-card">
+      <div class="focus-card-head">
+        <div>
+          <p class="eyebrow">近期重大事件</p>
+          <h2 class="focus-title event-card-title">關鍵節點</h2>
+        </div>
+        <a class="inline-edit-link" href="/settings#dashboard-customization">修改</a>
+      </div>
+
+      {% if dashboard_major_event.has_event %}
+        <p class="focus-resource-line">{{ dashboard_major_event.date_label }}</p>
+        <h3>{{ dashboard_major_event.content }}</h3>
+        <p class="task-subtle">{{ dashboard_major_event.message }}</p>
+      {% else %}
+        <h3>最近沒有重大事件</h3>
+        <p class="task-subtle">
+          最近沒有重大事件。你可以到設定中補上考試、比賽、截止日或其他需要倒數的節點。
+        </p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+
+<section class="panel-grid">
+  <article class="panel queue-panel">
+    <div class="panel-header queue-header">
+      <div>
+        <p class="eyebrow">學習</p>
+        <h2>待處理的學習任務</h2>
+      </div>
+      <div class="queue-summary">
+        <span class="badge badge-study">{{ summary.study_due|length }}</span>
+        <span class="panel-caption">先顯示 {{ visible_study|length }} 項</span>
+      </div>
+    </div>
+
+    {% if summary.study_due %}
+      <div class="queue-legend">
+        <span>依截止日期與優先級排序</span>
+        <span>另外還有 {{ hidden_study|length }} 項已收起</span>
+      </div>
+      <ul class="task-list">
+        {% for task in visible_study %}
+          <li class="task-card {% if task.due_date < summary.today %}task-card-overdue{% endif %}">
+            <span class="task-rank">{{ loop.index }}</span>
+            <div class="task-card-copy">
+              <p class="task-meta">
+                <span>{{ task.unit.resource.title }}</span>
+                <span>單元 {{ task.unit.order_index }}</span>
+                <span>{{ task.unit.resource.learning_mode_label }}</span>
+              </p>
+              <h3>{{ task.unit.title }}</h3>
+              <p class="task-subtle">
+                {{ task.unit.content_type_label }}
+                {% if task.unit.page_range_label %}| {{ task.unit.page_range_label }}{% endif %}
+                | 截止 {{ task.due_date.isoformat() }}
+                {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+              </p>
+            </div>
+            <div class="task-card-actions">
+              <span class="task-state">{% if task.due_date < summary.today %}追回{% else %}推進{% endif %}</span>
+              <a class="button magnetic-button" href="/tasks/{{ task.id }}">立即學習</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+
+      {% if hidden_study %}
+        <section class="queue-expander" data-expander>
+          <button class="queue-expander-toggle" type="button" data-expander-toggle aria-expanded="false">
+            <span>展開剩餘 {{ hidden_study|length }} 項學習任務</span>
+            <span class="queue-expander-mark" aria-hidden="true">+</span>
+          </button>
+          <div class="queue-overflow-shell" data-expander-body hidden>
+            <ul class="task-list queue-overflow-list">
+              {% for task in hidden_study %}
+                <li class="task-card {% if task.due_date < summary.today %}task-card-overdue{% endif %}">
+                  <span class="task-rank">{{ visible_study|length + loop.index }}</span>
+                  <div class="task-card-copy">
+                    <p class="task-meta">
+                      <span>{{ task.unit.resource.title }}</span>
+                      <span>單元 {{ task.unit.order_index }}</span>
+                      <span>{{ task.unit.resource.learning_mode_label }}</span>
+                    </p>
+                    <h3>{{ task.unit.title }}</h3>
+                    <p class="task-subtle">
+                      {{ task.unit.content_type_label }}
+                      {% if task.unit.page_range_label %}| {{ task.unit.page_range_label }}{% endif %}
+                      | 截止 {{ task.due_date.isoformat() }}
+                      {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                    </p>
+                  </div>
+                  <div class="task-card-actions">
+                    <span class="task-state">{% if task.due_date < summary.today %}追回{% else %}推進{% endif %}</span>
+                    <a class="button magnetic-button" href="/tasks/{{ task.id }}">立即學習</a>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+    {% else %}
+      <div class="empty-state cinematic-empty">
+        <span class="empty-glyph">01</span>
+        <h3>目前沒有需要處理的學習任務。</h3>
+        <p>學習佇列現在是空的。</p>
+      </div>
+    {% endif %}
+  </article>
+
+  <article class="panel queue-panel">
+    <div class="panel-header queue-header">
+      <div>
+        <p class="eyebrow">複習</p>
+        <h2>待處理的複習任務</h2>
+      </div>
+      <div class="queue-summary">
+        <span class="badge badge-review">{{ summary.review_due|length }}</span>
+        <span class="panel-caption">先顯示 {{ visible_review|length }} 項</span>
+      </div>
+    </div>
+
+    {% if summary.review_due %}
+      <div class="queue-legend">
+        <span>只顯示已到期或逾期的複習</span>
+        <span>另外還有 {{ hidden_review|length }} 項已收起</span>
+      </div>
+      <ul class="task-list">
+        {% for review in visible_review %}
+          <li class="task-card {% if review.due_date < summary.today %}task-card-overdue{% endif %}">
+            <span class="task-rank">{{ loop.index }}</span>
+            <div class="task-card-copy">
+              <p class="task-meta">
+                <span>{{ review.unit.resource.title }}</span>
+                <span>{{ review.interval_days }} 天複習</span>
+                <span>{{ review.unit.resource.learning_mode_label }}</span>
+              </p>
+              <h3>{{ review.unit.title }}</h3>
+              <p class="task-subtle">
+                {{ review.unit.content_type_label }}
+                {% if review.unit.page_range_label %}| {{ review.unit.page_range_label }}{% endif %}
+                | 截止 {{ review.due_date.isoformat() }}
+                {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+              </p>
+            </div>
+            <div class="task-card-actions">
+              <span class="task-state">{% if review.due_date < summary.today %}追回{% else %}回想{% endif %}</span>
+              <a class="button button-secondary magnetic-button" href="/reviews/{{ review.id }}">立即複習</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+
+      {% if hidden_review %}
+        <section class="queue-expander" data-expander>
+          <button class="queue-expander-toggle" type="button" data-expander-toggle aria-expanded="false">
+            <span>展開剩餘 {{ hidden_review|length }} 項複習任務</span>
+            <span class="queue-expander-mark" aria-hidden="true">+</span>
+          </button>
+          <div class="queue-overflow-shell" data-expander-body hidden>
+            <ul class="task-list queue-overflow-list">
+              {% for review in hidden_review %}
+                <li class="task-card {% if review.due_date < summary.today %}task-card-overdue{% endif %}">
+                  <span class="task-rank">{{ visible_review|length + loop.index }}</span>
+                  <div class="task-card-copy">
+                    <p class="task-meta">
+                      <span>{{ review.unit.resource.title }}</span>
+                      <span>{{ review.interval_days }} 天複習</span>
+                      <span>{{ review.unit.resource.learning_mode_label }}</span>
+                    </p>
+                    <h3>{{ review.unit.title }}</h3>
+                    <p class="task-subtle">
+                      {{ review.unit.content_type_label }}
+                      {% if review.unit.page_range_label %}| {{ review.unit.page_range_label }}{% endif %}
+                      | 截止 {{ review.due_date.isoformat() }}
+                      {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                    </p>
+                  </div>
+                  <div class="task-card-actions">
+                    <span class="task-state">{% if review.due_date < summary.today %}追回{% else %}回想{% endif %}</span>
+                    <a class="button button-secondary magnetic-button" href="/reviews/{{ review.id }}">立即複習</a>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+    {% else %}
+      <div class="empty-state cinematic-empty">
+        <span class="empty-glyph">02</span>
+        <h3>目前沒有需要處理的複習任務。</h3>
+        <p>複習佇列現在是空的。</p>
+      </div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel atlas-panel" id="mission-atlas">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">資源</p>
+      <h2>當前資源</h2>
+    </div>
+    <a class="button button-secondary magnetic-button" href="/resources/new">匯入資料</a>
+  </div>
+
+  {% if summary.resources %}
+    <div class="resource-grid">
+      {% for resource in summary.resources %}
+        {% set completed_units = resource.learning_units | selectattr("status", "equalto", "completed") | list | length %}
+        <a class="resource-card" href="/resources/{{ resource.id }}">
+          <div class="resource-card-top">
+            <p class="task-meta">
+              <span>{{ resource.source_type_label }}</span>
+              <span>優先級 {{ resource.priority }}</span>
+              <span>{{ resource.learning_mode_label }}</span>
+            </p>
+            <span class="status-pill status-{{ resource.status }}">{{ resource.status_label }}</span>
+          </div>
+          <h3>{{ resource.title }}</h3>
+          <p class="task-subtle">{{ resource.description or "這份資源目前沒有補充說明。" }}</p>
+          <div class="progress-row">
+            <span>已完成 {{ completed_units }}/{{ resource.learning_units|length }} 個單元</span>
+            <span>截止 {{ resource.study_plan.deadline.isoformat() }}</span>
+          </div>
+          <div class="progress-bar">
+            <span style="width: {{ (completed_units / (resource.learning_units|length or 1) * 100) | round(0) }}%"></span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state cinematic-empty">
+      <span class="empty-glyph">03</span>
+      <h3>目前還沒有資源。</h3>
+      <p>匯入新資料後，這裡會顯示它們的整體進度。</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

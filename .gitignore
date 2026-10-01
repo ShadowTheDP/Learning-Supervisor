@@ -9,6 +9,7 @@ data/state/*.sqlite3
 data/state/*.pid
 data/state/docling_artifacts/
 data/state/logs/
+data/state/import_jobs/
 !data/state/.gitkeep
 data/resources/*
 !data/resources/.gitkeep

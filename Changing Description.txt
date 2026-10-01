@@ -716,3 +716,11 @@ After each meaningful completed task, append:
 - Verification notes: The only timer initializer left is `initTaskTimerV3`,
   which is the active entrypoint.
 - Ready to push: after normal review.
+
+2026-10-01
+- Summary: Added the persisted import-job directory to `.gitignore` so local
+  worker state and logs cannot be committed accidentally.
+- Key files changed: `.gitignore`
+- Verification notes: Existing import-job files are now ignored; the code,
+  tests, and handoff files remain pushed in commit `5a6e161`.
+- Ready to push: yes.

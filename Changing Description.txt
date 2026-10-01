@@ -674,3 +674,45 @@ After each meaningful completed task, append:
   application, script, or test module imports or references RecallLoom.
 - Ready to push: yes, because this cleanup only removed inactive continuity
   residue and did not touch runtime code or state.
+
+2026-06-20 00:00
+- Summary: Added baseline governance coverage for `Learning-Supervisor` by
+  creating `AGENTS.md`, `MEMORY.md`, and `docs/agent/current-state.md`, then
+  updated the README handoff section and repository layout so cold-start agents
+  can enter the project from docs alone.
+- Key files changed: `README.md`, `AGENTS.md`, `MEMORY.md`,
+  `docs/agent/current-state.md`, `Changing Description.txt`
+- Verification notes: Confirmed the project now has the full required
+  Markdown handoff set and that the README handoff order points to the new
+  governance files before source inspection.
+- Ready to push: yes.
+
+2026-06-27 23:42
+- Summary: Refreshed the project handoff documents so the next agent can take
+  over the current Docling-based PDF workflow without chat history, including
+  the long-PDF background import job system, the chapter-scoped PDF preview
+  architecture, the Windows localhost verification guidance, and the remaining
+  frontend duplication risk in `app/static/app.js`.
+- Key files changed: `README.md`, `AGENTS.md`, `MEMORY.md`,
+  `docs/agent/current-state.md`, `Changing Description.txt`
+- Verification notes: Documentation was updated to match the current code
+  paths and then revalidated with `node --check app/static/app.js`,
+  `.venv\Scripts\python.exe -m unittest tests.test_templates
+  tests.test_pdf_page_viewer tests.test_study_service tests.test_import_jobs`,
+  and `.venv\Scripts\python.exe -m compileall app tests`.
+- Ready to push: yes, as a handoff/documentation checkpoint.
+2026-10-01
+- Summary: Removed superseded JavaScript implementations for import polling,
+  task timers, and PDF preview.
+- Key files changed: `app/static/app.js`, `MEMORY.md`,
+  `docs/agent/current-state.md`
+- Verification notes: `node --check` passed; Python compile passed; 47 unit
+  tests passed; `/health` returned `200 {"status":"ok"}` on port 8000.
+- Ready to push: after browser smoke testing.
+
+2026-10-01
+- Summary: Removed the remaining unused legacy `initTaskTimer` implementation.
+- Key files changed: `app/static/app.js`, `README.md`
+- Verification notes: The only timer initializer left is `initTaskTimerV3`,
+  which is the active entrypoint.
+- Ready to push: after normal review.

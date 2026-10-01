@@ -3,8 +3,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -12,14 +12,25 @@ from sqlalchemy.orm import Session
 
 from .config import PROJECT_ROOT, ensure_runtime_dirs
 from .db import get_session, initialize_database
-from .models import Resource
-from .services.pdf_page_viewer import get_available_unit_pdf_page_numbers, get_or_render_pdf_page
+from .models import LearningUnit, Resource
+from .services.pdf_page_viewer import (
+    get_available_unit_pdf_page_numbers,
+    get_or_create_unit_pdf_preview_page,
+    get_or_render_pdf_page,
+    get_or_create_unit_pdf_subset,
+    get_original_pdf_path,
+)
+from .services.import_jobs import (
+    ImportJobPayload,
+    create_import_job,
+    get_import_job,
+    list_recent_import_jobs,
+)
 from .services.settings_service import get_app_settings, update_app_settings
 from .services.study_service import (
     complete_daily_task,
     complete_review_task,
     content_has_math,
-    create_resource_plan,
     get_daily_task,
     get_dashboard_summary,
     get_resource,
@@ -70,6 +81,7 @@ SETTINGS_MOTION_LABELS = {
     "soft": "柔和",
     "minimal": "極簡",
 }
+PDF_INLINE_PREVIEW_PAGE_LIMIT = 2
 
 
 def _static_version(path: str) -> str:
@@ -132,12 +144,31 @@ def _settings_template_context(app_settings: object, **extra_context: object) ->
 
 
 def _unit_material_context(unit: object) -> dict:
-    pdf_page_numbers = get_available_unit_pdf_page_numbers(unit)
+    pdf_document_path = get_original_pdf_path(unit.resource)
+    pdf_page_numbers = get_available_unit_pdf_page_numbers(unit) if pdf_document_path is not None else []
+    pdf_page_count = len(pdf_page_numbers)
+    pdf_inline_preview_pages = [
+        {
+            "document_page_number": index + 1,
+            "source_page_number": page_number,
+            "preview_url": f"/units/{unit.id}/pdf-preview/{page_number}",
+        }
+        for index, page_number in enumerate(pdf_page_numbers[:PDF_INLINE_PREVIEW_PAGE_LIMIT])
+    ]
     return {
         "content_html": Markup(render_markdown(unit.content_markdown)),
         "has_math_content": content_has_math(unit.content_markdown),
         "pdf_page_numbers": pdf_page_numbers,
+        "pdf_viewer_page_numbers": list(range(1, pdf_page_count + 1)),
         "pdf_available": bool(pdf_page_numbers),
+        "pdf_page_count": pdf_page_count,
+        "pdf_has_multiple_pages": pdf_page_count > 1,
+        "pdf_inline_preview_pages": pdf_inline_preview_pages,
+        "pdf_document_url": (
+            f"/units/{unit.id}/pdf"
+            if pdf_page_numbers
+            else ""
+        ),
     }
 
 
@@ -184,6 +215,7 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
         {
             "summary": summary,
             "app_settings": app_settings,
+            "recent_import_jobs": list_recent_import_jobs(),
             "dashboard_hero_title_lines": _dashboard_hero_title_lines(app_settings),
             "dashboard_major_event": _dashboard_major_event_context(app_settings, summary.today),
         },
@@ -193,7 +225,15 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
 
 @app.get("/resources/new")
 def new_resource(request: Request, session: Session = Depends(get_session)):
-    return render_template(request, "resource_form.html", {}, session)
+    active_import_job_id = request.query_params.get("job", "").strip()
+    return render_template(
+        request,
+        "resource_form.html",
+        {
+            "active_import_job_id": active_import_job_id,
+        },
+        session,
+    )
 
 
 @app.post("/resources")
@@ -205,41 +245,40 @@ def create_resource(
     deadline: str = Form(...),
     priority: int = Form(2),
     learning_mode: str = Form("application"),
-    session: Session = Depends(get_session),
 ):
-    app_settings = get_app_settings(session)
     try:
-        parsed_deadline = date.fromisoformat(deadline)
-        resource = create_resource_plan(
-            session,
+        payload = ImportJobPayload(
             title=title,
             description=description,
             source_path=source_path,
-            deadline=parsed_deadline,
+            deadline=deadline,
             priority=priority,
             learning_mode=learning_mode,
-            review_intervals_csv=app_settings.review_intervals_csv,
-            allow_weekend_scheduling=app_settings.allow_weekend_scheduling,
         )
+        date.fromisoformat(payload.deadline)
+        job_state = create_import_job(payload)
     except ValueError as exc:
-        return render_template(
-            request,
-            "resource_form.html",
-            {
-                "error_message": str(exc),
-                "form_values": {
-                    "title": title,
-                    "description": description,
-                    "source_path": source_path,
-                    "deadline": deadline,
-                    "priority": priority,
-                    "learning_mode": learning_mode,
-                },
-            },
-            session,
-        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return RedirectResponse(url=f"/resources/{resource.id}", status_code=status.HTTP_303_SEE_OTHER)
+    response_payload = {
+        "job_id": job_state["job_id"],
+        "status": job_state["status"],
+        "progress_percent": job_state["progress_percent"],
+        "status_label": job_state["status_label"],
+        "detail": job_state["detail"],
+    }
+    if request.headers.get("x-learning-supervisor-import") == "async":
+        return JSONResponse(response_payload, status_code=status.HTTP_202_ACCEPTED)
+
+    return RedirectResponse(url=f"/resources/new?job={job_state['job_id']}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/imports/{job_id}")
+def import_job_status(job_id: str):
+    job_state = get_import_job(job_id)
+    if job_state is None:
+        raise HTTPException(status_code=404, detail="找不到這個匯入任務。")
+    return JSONResponse(job_state)
 
 
 @app.get("/resources/{resource_id}")
@@ -333,6 +372,124 @@ def resource_pdf_page(resource_id: str, page_number: int, session: Session = Dep
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return FileResponse(image_path, media_type="image/png")
+
+
+@app.get("/resources/{resource_id}/original.pdf")
+def resource_original_pdf(resource_id: str, session: Session = Depends(get_session)):
+    resource = session.get(Resource, resource_id)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="鎵句笉鍒拌硣婧愩€?")
+
+    pdf_path = get_original_pdf_path(resource)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="姝や換鍕欑殑鍘熷 PDF 涓嶅彲鐢ㄣ€?")
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+    )
+
+
+@app.get("/units/{unit_id}/pdf")
+def unit_pdf_subset(unit_id: str, session: Session = Depends(get_session)):
+    unit = session.get(LearningUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=404, detail="找不到這個學習單元。")
+
+    try:
+        pdf_path = get_or_create_unit_pdf_subset(unit)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+    )
+
+
+@app.head("/units/{unit_id}/pdf")
+def unit_pdf_subset_head(unit_id: str, session: Session = Depends(get_session)):
+    unit = session.get(LearningUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=404, detail="找不到這個學習單元。")
+
+    try:
+        pdf_path = get_or_create_unit_pdf_subset(unit)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return Response(
+        content=b"",
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{pdf_path.name}"',
+            "Content-Length": str(pdf_path.stat().st_size),
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@app.get("/units/{unit_id}/pdf-preview/{page_number}")
+def unit_pdf_preview_page(unit_id: str, page_number: int, session: Session = Depends(get_session)):
+    unit = session.get(LearningUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=404, detail="找不到這個學習單元。")
+
+    try:
+        pdf_path = get_or_create_unit_pdf_preview_page(unit, page_number)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+    )
+
+
+@app.head("/units/{unit_id}/pdf-preview/{page_number}")
+def unit_pdf_preview_page_head(unit_id: str, page_number: int, session: Session = Depends(get_session)):
+    unit = session.get(LearningUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=404, detail="找不到這個學習單元。")
+
+    try:
+        pdf_path = get_or_create_unit_pdf_preview_page(unit, page_number)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return Response(
+        content=b"",
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{pdf_path.name}"',
+            "Content-Length": str(pdf_path.stat().st_size),
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@app.head("/resources/{resource_id}/original.pdf")
+def resource_original_pdf_head(resource_id: str, session: Session = Depends(get_session)):
+    resource = session.get(Resource, resource_id)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="鎵句笉鍒拌硣婧愩€?")
+
+    pdf_path = get_original_pdf_path(resource)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="姝や換鍕欑殑鍘熷 PDF 涓嶅彲鐢ㄣ€?")
+
+    return Response(
+        content=b"",
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{pdf_path.name}"',
+            "Content-Length": str(pdf_path.stat().st_size),
+            "Accept-Ranges": "bytes",
+        },
+    )
 
 
 @app.post("/reviews/{review_id}/complete")

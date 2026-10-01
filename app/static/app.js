@@ -346,2292 +346,158 @@
       const overlay = form.querySelector("[data-submit-loader]");
       const submitControls = Array.from(form.querySelectorAll("button[type='submit'], input[type='submit']"));
       const fallbackText = form.dataset.loadingText || "正在處理，請稍候...";
+      const statusLabel = form.querySelector("[data-import-status-label]");
+      const statusDetail = form.querySelector("[data-import-status-detail]");
+      const progressFill = form.querySelector("[data-import-progress-fill]");
+      const progressText = form.querySelector("[data-import-progress-text]");
+      const activeJobId = form.dataset.activeImportJobId || "";
+      let pollHandle = 0;
+      let consecutivePollFailures = 0;
+      const maxTransientPollFailures = 6;
 
-      form.addEventListener("submit", () => {
-        form.classList.add("is-submitting");
+      const setSubmittingState = (isSubmitting) => {
+        form.classList.toggle("is-submitting", isSubmitting);
         if (overlay) {
-          overlay.hidden = false;
+          overlay.hidden = !isSubmitting;
         }
+      };
 
+      const setProgress = (percent, label, detail) => {
+        const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (progressFill) {
+          progressFill.style.width = `${safePercent}%`;
+        }
+        if (progressText) {
+          progressText.textContent = `${Math.round(safePercent)}%`;
+        }
+        if (statusLabel && label) {
+          statusLabel.textContent = label;
+        }
+        if (statusDetail && detail) {
+          statusDetail.textContent = detail;
+        }
+      };
+
+      const setControlsDisabled = (disabled) => {
         submitControls.forEach((control) => {
           const loadingText = control.dataset.loadingText || fallbackText;
-          control.disabled = true;
-          control.setAttribute("aria-busy", "true");
+          control.disabled = disabled;
+          control.setAttribute("aria-busy", disabled ? "true" : "false");
 
           if (control instanceof HTMLInputElement) {
-            control.value = loadingText;
+            control.value = disabled ? loadingText : (control.dataset.originalValue || control.defaultValue || control.value);
             return;
           }
 
-          control.textContent = loadingText;
+          if (!control.dataset.originalText) {
+            control.dataset.originalText = control.textContent || "";
+          }
+          control.textContent = disabled ? loadingText : control.dataset.originalText;
         });
+      };
+
+      const stopPolling = () => {
+        if (pollHandle) {
+          window.clearTimeout(pollHandle);
+          pollHandle = 0;
+        }
+      };
+
+      const setActiveJobInUrl = (jobId) => {
+        const nextUrl = new URL(window.location.href);
+        if (jobId) {
+          nextUrl.searchParams.set("job", jobId);
+        } else {
+          nextUrl.searchParams.delete("job");
+        }
+        window.history.replaceState({}, "", nextUrl.toString());
+      };
+
+      const finishPollingWithMessage = (message) => {
+        stopPolling();
+        setControlsDisabled(false);
+        setSubmittingState(false);
+        if (statusDetail) {
+          statusDetail.textContent = message;
+        }
+      };
+
+      const pollJob = async (jobId) => {
+        stopPolling();
+        setSubmittingState(true);
+        setControlsDisabled(true);
+
+        try {
+          const response = await fetch(`/imports/${encodeURIComponent(jobId)}`, {
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          });
+          if (!response.ok) {
+            throw new Error("無法取得匯入狀態。");
+          }
+          const job = await response.json();
+          setProgress(job.progress_percent, job.status_label, job.detail || job.error_message || "");
+
+          if (job.status === "completed" && job.resource_id) {
+            window.location.href = `/resources/${encodeURIComponent(job.resource_id)}`;
+            return;
+          }
+          if (job.status === "failed") {
+            setControlsDisabled(false);
+            stopPolling();
+            if (statusDetail) {
+              statusDetail.textContent = job.error_message || job.detail || "匯入失敗。";
+            }
+            return;
+          }
+
+          pollHandle = window.setTimeout(() => {
+            void pollJob(jobId);
+          }, 1200);
+        } catch (error) {
+          setControlsDisabled(false);
+          stopPolling();
+          if (statusDetail) {
+            statusDetail.textContent = error instanceof Error ? error.message : "匯入狀態輪詢失敗。";
+          }
+        }
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setSubmittingState(true);
+        setControlsDisabled(true);
+        setProgress(0, "正在建立匯入任務", "已送出 PDF 匯入請求，正在建立後台任務。");
+
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            headers: {
+              "x-learning-supervisor-import": "async",
+              Accept: "application/json",
+            },
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || "匯入請求失敗。");
+          }
+          await pollJob(payload.job_id);
+        } catch (error) {
+          setControlsDisabled(false);
+          setSubmittingState(true);
+          if (statusDetail) {
+            statusDetail.textContent = error instanceof Error ? error.message : "匯入請求失敗。";
+          }
+        }
       });
-    });
-  }
 
-  function initTaskTimer() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:${taskId}`;
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      lastUpdatedAt: 0,
-      chimed: false,
-    });
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(storageKey, JSON.stringify(state));
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.lastUpdatedAt = safeNumber(parsed.lastUpdatedAt, Date.now());
-        state.chimed = false;
-      } catch (_error) {}
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const stopTicker = () => {
-      if (timerHandle) {
-        window.clearInterval(timerHandle);
-        timerHandle = 0;
-      }
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const syncElapsed = () => {
-      if (!state.running) {
-        return;
-      }
-
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - state.lastUpdatedAt) / 1000);
-      if (elapsedSeconds <= 0) {
-        return;
-      }
-
-      state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsedSeconds);
-      state.lastUpdatedAt = now;
-
-      if (state.remainingSeconds === 0) {
-        state.running = false;
-        state.paused = false;
-        state.expired = true;
-        clearState();
-      }
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.lastUpdatedAt = nextState.lastUpdatedAt;
-      state.chimed = nextState.chimed;
-      stopTicker();
-      clearState();
-    };
-
-    const renderTimer = () => {
-      syncElapsed();
-
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("進行中", "running");
-        if (caption) {
-          caption.textContent = "時鐘正在走，可以隨時暫停、延長或結束。";
-        }
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到", "expired");
-        if (caption) {
-          caption.textContent = "這一輪時間已到，可以延長或直接整理完成記錄。";
-        }
-        document.title = `[時間到] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        if (caption) {
-          caption.textContent = "這一輪計時已手動結束，可以直接提交學習完成。";
-        }
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        if (caption) {
-          caption.textContent = "已暫停，可以繼續這一輪或重新設定時間。";
-        }
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        if (caption) {
-          caption.textContent = "先設定分鐘，再開始。";
-        }
-        document.title = baseTitle;
-      }
-
-      if (minutesInput && !state.running && !state.paused && !state.expired) {
-        minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-      }
-
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (startButton) {
-        startButton.textContent = state.paused ? "重新開始" : "開始計時";
-      }
-
-      presetButtons.forEach((button) => {
-        button.disabled = state.running;
-      });
-      if (minutesInput) {
-        minutesInput.disabled = state.running;
-      }
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 250);
-    };
-
-    const applyMinutesFromInput = () => {
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      stopTicker();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        state.running = false;
-        state.paused = true;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = clampMinutes(extraMinutes) * 60;
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds += extraSeconds;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-      if (!state.running) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-      }
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.lastUpdatedAt = Date.now();
-      stopTicker();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    loadState();
-    if (minutesInput && !state.running && !state.paused && !state.expired && !state.finished) {
-      minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-    }
-    if (state.running) {
-      syncElapsed();
-      if (state.running) {
-        startTicker();
-      }
-    }
-    renderTimer();
-
-    if (minutesInput) {
-      minutesInput.addEventListener("change", applyMinutesFromInput);
-    }
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    resetButton?.addEventListener("click", applyMinutesFromInput);
-    finishButton?.addEventListener("click", finishEarly);
-
-    presetButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        if (!minutesInput) {
-          return;
-        }
-        minutesInput.value = String(clampMinutes(button.dataset.timerPreset));
-        applyMinutesFromInput();
-      });
-    });
-
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
-    });
-  }
-
-  function initTaskTimerV2() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:${taskId}`;
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      lastUpdatedAt: 0,
-      chimed: false,
-    });
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(storageKey, JSON.stringify(state));
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.lastUpdatedAt = safeNumber(parsed.lastUpdatedAt, Date.now());
-        state.chimed = false;
-      } catch (_error) {}
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const stopTicker = () => {
-      if (timerHandle) {
-        window.clearInterval(timerHandle);
-        timerHandle = 0;
-      }
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const syncElapsed = () => {
-      if (!state.running) {
-        return;
-      }
-
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - state.lastUpdatedAt) / 1000);
-      if (elapsedSeconds <= 0) {
-        return;
-      }
-
-      state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsedSeconds);
-      state.lastUpdatedAt = now;
-
-      if (state.remainingSeconds === 0) {
-        state.running = false;
-        state.paused = false;
-        state.expired = true;
-        clearState();
-      }
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.lastUpdatedAt = nextState.lastUpdatedAt;
-      state.chimed = nextState.chimed;
-      stopTicker();
-      clearState();
-    };
-
-    const renderTimer = () => {
-      syncElapsed();
-
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("進行中", "running");
-        setTimerClasses("running");
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到", "expired");
-        setTimerClasses("expired");
-        document.title = `[時間到] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        setTimerClasses("finished");
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        setTimerClasses("paused");
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        setTimerClasses("idle");
-        document.title = baseTitle;
-      }
-
-      if (minutesInput && !state.running) {
-        minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-        minutesInput.disabled = false;
-      }
-      if (startButton) {
-        startButton.disabled = state.running;
-        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
-      }
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (finishButton) {
-        finishButton.disabled = !state.running && !state.paused && !state.expired;
-      }
-      extendButtons.forEach((button) => {
-        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
-      });
-      if (minutesInput) {
-        minutesInput.disabled = state.running;
-      }
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 250);
-    };
-
-    const applyMinutesFromInput = () => {
-      resetToIdle();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        state.running = false;
-        state.paused = true;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds += extraSeconds;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-      if (!state.running) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-      }
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.lastUpdatedAt = Date.now();
-      stopTicker();
-      clearState();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    loadState();
-    if (state.running) {
-      syncElapsed();
-      if (state.expired) {
-        stopTicker();
-      } else {
-        startTicker();
-      }
-    }
-    if (minutesInput && !state.running && !state.paused && !state.expired && !state.finished) {
-      minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-    }
-    renderTimer();
-
-    minutesInput?.addEventListener("change", applyMinutesFromInput);
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    finishButton?.addEventListener("click", finishEarly);
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
-    });
-  }
-
-  function initTaskTimerV2() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:v2:${taskId}`;
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      lastUpdatedAt: 0,
-      chimed: false,
-    });
-
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const stopTicker = () => {
-      if (!timerHandle) {
-        return;
-      }
-      window.clearInterval(timerHandle);
-      timerHandle = 0;
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(storageKey, JSON.stringify(state));
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.lastUpdatedAt = safeNumber(parsed.lastUpdatedAt, Date.now());
-        state.chimed = false;
-      } catch (_error) {}
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const syncElapsed = () => {
-      if (!state.running) {
-        return;
-      }
-
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - state.lastUpdatedAt) / 1000);
-      if (elapsedSeconds <= 0) {
-        return;
-      }
-
-      state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsedSeconds);
-      state.lastUpdatedAt = now;
-
-      if (state.remainingSeconds === 0) {
-        state.running = false;
-        state.paused = false;
-        state.expired = true;
-        clearState();
-      }
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.lastUpdatedAt = nextState.lastUpdatedAt;
-      state.chimed = nextState.chimed;
-      stopTicker();
-      clearState();
-    };
-
-    const renderTimer = () => {
-      syncElapsed();
-
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("進行中", "running");
-        setTimerClasses("running");
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到", "expired");
-        setTimerClasses("expired");
-        document.title = `[時間到] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        setTimerClasses("finished");
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        setTimerClasses("paused");
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        setTimerClasses("idle");
-        document.title = baseTitle;
-      }
-
-      if (minutesInput) {
-        if (!state.running) {
-          minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-        }
-        minutesInput.disabled = state.running;
-      }
-
-      if (startButton) {
-        startButton.disabled = state.running;
-        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
-      }
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (finishButton) {
-        finishButton.disabled = !state.running && !state.paused && !state.expired;
-      }
-      extendButtons.forEach((button) => {
-        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
-      });
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 250);
-    };
-
-    const applyMinutesFromInput = () => {
-      resetToIdle();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        state.running = false;
-        state.paused = true;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds += extraSeconds;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-
-      if (!state.running) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-      }
-
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.lastUpdatedAt = Date.now();
-      stopTicker();
-      clearState();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    try {
-      window.localStorage.removeItem(`ls-task-timer:${taskId}`);
-    } catch (_error) {}
-
-    clearState();
-    resetToIdle(defaultMinutes);
-    renderTimer();
-
-    minutesInput?.addEventListener("change", applyMinutesFromInput);
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    finishButton?.addEventListener("click", finishEarly);
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
-    });
-  }
-
-  function initTaskTimerV2() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:${taskId}`;
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      lastUpdatedAt: 0,
-      chimed: false,
-    });
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(storageKey, JSON.stringify(state));
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.lastUpdatedAt = safeNumber(parsed.lastUpdatedAt, Date.now());
-        state.chimed = false;
-      } catch (_error) {}
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const stopTicker = () => {
-      if (timerHandle) {
-        window.clearInterval(timerHandle);
-        timerHandle = 0;
-      }
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const syncElapsed = () => {
-      if (!state.running) {
-        return;
-      }
-
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - state.lastUpdatedAt) / 1000);
-      if (elapsedSeconds <= 0) {
-        return;
-      }
-
-      state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsedSeconds);
-      state.lastUpdatedAt = now;
-
-      if (state.remainingSeconds === 0) {
-        state.running = false;
-        state.paused = false;
-        state.expired = true;
-        clearState();
-      }
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.lastUpdatedAt = nextState.lastUpdatedAt;
-      state.chimed = nextState.chimed;
-      stopTicker();
-      clearState();
-    };
-
-    const renderTimer = () => {
-      syncElapsed();
-
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("進行中", "running");
-        setTimerClasses("running");
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到", "expired");
-        setTimerClasses("expired");
-        document.title = `[時間到] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        setTimerClasses("finished");
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        setTimerClasses("paused");
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        setTimerClasses("idle");
-        document.title = baseTitle;
-      }
-
-      if (minutesInput && !state.running) {
-        minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-        minutesInput.disabled = false;
-      }
-      if (startButton) {
-        startButton.disabled = state.running;
-        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
-      }
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (finishButton) {
-        finishButton.disabled = !state.running && !state.paused && !state.expired;
-      }
-      extendButtons.forEach((button) => {
-        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
-      });
-      if (minutesInput) {
-        minutesInput.disabled = state.running;
-      }
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 250);
-    };
-
-    const applyMinutesFromInput = () => {
-      resetToIdle();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        state.running = false;
-        state.paused = true;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds += extraSeconds;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-      if (!state.running) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-      }
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.lastUpdatedAt = Date.now();
-      stopTicker();
-      clearState();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    loadState();
-    if (state.running) {
-      syncElapsed();
-      if (state.expired) {
-        stopTicker();
-      } else {
-        startTicker();
-      }
-    }
-    if (minutesInput && !state.running && !state.paused && !state.expired && !state.finished) {
-      minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-    }
-    renderTimer();
-
-    minutesInput?.addEventListener("change", applyMinutesFromInput);
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    finishButton?.addEventListener("click", finishEarly);
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
-    });
-  }
-
-  function initTaskTimerV2() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:v2:${taskId}`;
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      lastUpdatedAt: 0,
-      chimed: false,
-    });
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const stopTicker = () => {
-      if (!timerHandle) {
-        return;
-      }
-      window.clearInterval(timerHandle);
-      timerHandle = 0;
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(storageKey, JSON.stringify(state));
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.lastUpdatedAt = safeNumber(parsed.lastUpdatedAt, Date.now());
-        state.chimed = false;
-      } catch (_error) {}
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const syncElapsed = () => {
-      if (!state.running) {
-        return;
-      }
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - state.lastUpdatedAt) / 1000);
-      if (elapsedSeconds <= 0) {
-        return;
-      }
-      state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsedSeconds);
-      state.lastUpdatedAt = now;
-      if (state.remainingSeconds === 0) {
-        state.running = false;
-        state.paused = false;
-        state.expired = true;
-        clearState();
-      }
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.lastUpdatedAt = nextState.lastUpdatedAt;
-      state.chimed = nextState.chimed;
-      stopTicker();
-      clearState();
-    };
-
-    const renderTimer = () => {
-      syncElapsed();
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("進行中", "running");
-        setTimerClasses("running");
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到", "expired");
-        setTimerClasses("expired");
-        document.title = `[時間到] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        setTimerClasses("finished");
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        setTimerClasses("paused");
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        setTimerClasses("idle");
-        document.title = baseTitle;
-      }
-
-      if (minutesInput) {
-        if (!state.running) {
-          minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-        }
-        minutesInput.disabled = state.running;
-      }
-      if (startButton) {
-        startButton.disabled = state.running;
-        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
-      }
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (finishButton) {
-        finishButton.disabled = !state.running && !state.paused && !state.expired;
-      }
-      extendButtons.forEach((button) => {
-        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
-      });
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 250);
-    };
-
-    const applyMinutesFromInput = () => {
-      resetToIdle();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      state.durationSeconds = minutes * 60;
-      state.remainingSeconds = minutes * 60;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.lastUpdatedAt = Date.now();
-      state.chimed = false;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        state.running = false;
-        state.paused = true;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds += extraSeconds;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-      if (!state.running) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.lastUpdatedAt = Date.now();
-        startTicker();
-      }
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.lastUpdatedAt = Date.now();
-      stopTicker();
-      clearState();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    try {
-      window.localStorage.removeItem(`ls-task-timer:${taskId}`);
-    } catch (_error) {}
-
-    loadState();
-    if (state.running) {
-      syncElapsed();
-      if (state.expired) {
-        stopTicker();
-      } else {
-        startTicker();
-      }
-    }
-    renderTimer();
-
-    minutesInput?.addEventListener("change", applyMinutesFromInput);
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    finishButton?.addEventListener("click", finishEarly);
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
-    });
-  }
-
-  function initTaskTimerV3() {
-    const timerRoot = document.querySelector("[data-task-timer]");
-    if (!timerRoot) {
-      return;
-    }
-
-    const taskId = timerRoot.dataset.taskId || "study-task";
-    const storageKey = `ls-task-timer:v3:${taskId}`;
-    const legacyKeys = [`ls-task-timer:${taskId}`, `ls-task-timer:v2:${taskId}`];
-    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
-    const display = timerRoot.querySelector("[data-timer-display]");
-    const orb = timerRoot.querySelector("[data-timer-orb]");
-    const stateBadge = timerRoot.querySelector("[data-timer-state]");
-    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
-    const startButton = timerRoot.querySelector("[data-timer-start]");
-    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
-    const finishButton = timerRoot.querySelector("[data-timer-finish]");
-    const alertBox = timerRoot.querySelector("[data-timer-alert]");
-    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
-    const completeForm = document.querySelector("[data-task-complete-form]");
-    const baseTitle = document.title;
-    const timerStateClassMap = {
-      idle: "status-scheduled",
-      running: "status-live",
-      paused: "status-in_review",
-      expired: "status-active",
-      finished: "status-completed",
-    };
-
-    const buildIdleState = (minutes) => ({
-      durationSeconds: minutes * 60,
-      remainingSeconds: minutes * 60,
-      endsAt: 0,
-      running: false,
-      paused: false,
-      expired: false,
-      finished: false,
-      chimed: false,
-    });
-
-    const state = buildIdleState(defaultMinutes);
-    let timerHandle = 0;
-    let audioContext = null;
-
-    const safeNumber = (value, fallback) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const clampMinutes = (value) => {
-      const parsed = Math.round(safeNumber(value, defaultMinutes));
-      return Math.min(240, Math.max(1, parsed));
-    };
-
-    const setBadge = (text, variant) => {
-      if (!stateBadge) {
-        return;
-      }
-      stateBadge.textContent = text;
-      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
-    };
-
-    const setTimerClasses = (variant) => {
-      timerRoot.classList.toggle("is-running", variant === "running");
-      timerRoot.classList.toggle("is-expired", variant === "expired");
-      timerRoot.classList.toggle("is-finished", variant === "finished");
-      timerRoot.classList.toggle("is-paused", variant === "paused");
-    };
-
-    const stopTicker = () => {
-      if (!timerHandle) {
-        return;
-      }
-      window.clearInterval(timerHandle);
-      timerHandle = 0;
-    };
-
-    const clearState = () => {
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const saveState = () => {
-      try {
-        if (state.running || state.paused) {
-          window.localStorage.setItem(
-            storageKey,
-            JSON.stringify({
-              durationSeconds: state.durationSeconds,
-              remainingSeconds: state.remainingSeconds,
-              endsAt: state.endsAt,
-              running: state.running,
-              paused: state.paused,
-            }),
-          );
-          return;
-        }
-        window.localStorage.removeItem(storageKey);
-      } catch (_error) {}
-    };
-
-    const ensureAudioContext = () => {
-      if (audioContext || !window.AudioContext) {
-        return;
-      }
-      try {
-        audioContext = new window.AudioContext();
-      } catch (_error) {
-        audioContext = null;
-      }
-    };
-
-    const playChime = () => {
-      if (!audioContext) {
-        return;
-      }
-      const startAt = audioContext.currentTime;
-      [0, 0.22].forEach((offset, index) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = index === 0 ? 880 : 1046;
-        gain.gain.setValueAtTime(0.0001, startAt + offset);
-        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(startAt + offset);
-        oscillator.stop(startAt + offset + 0.18);
-      });
-    };
-
-    const formatClock = (totalSeconds) => {
-      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-      const minutes = Math.floor(safeSeconds / 60);
-      const seconds = safeSeconds % 60;
-      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    };
-
-    const applyIdleState = (minutes) => {
-      const nextState = buildIdleState(minutes);
-      state.durationSeconds = nextState.durationSeconds;
-      state.remainingSeconds = nextState.remainingSeconds;
-      state.endsAt = nextState.endsAt;
-      state.running = nextState.running;
-      state.paused = nextState.paused;
-      state.expired = nextState.expired;
-      state.finished = nextState.finished;
-      state.chimed = nextState.chimed;
-    };
-
-    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
-      applyIdleState(minutes);
-      stopTicker();
-      clearState();
-    };
-
-    const expireTimer = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = true;
-      state.finished = false;
-      state.remainingSeconds = 0;
-      state.endsAt = 0;
-      clearState();
-    };
-
-    const syncClock = () => {
-      if (!state.running) {
-        return;
-      }
-      const remainingMs = state.endsAt - Date.now();
-      if (remainingMs <= 0) {
-        expireTimer();
-        return;
-      }
-      state.remainingSeconds = Math.ceil(remainingMs / 1000);
-    };
-
-    const loadState = () => {
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) {
-          return;
-        }
-        const parsed = JSON.parse(raw);
-        if (!parsed || (!parsed.running && !parsed.paused)) {
-          clearState();
-          return;
-        }
-        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
-        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
-        state.endsAt = Math.max(0, safeNumber(parsed.endsAt, 0));
-        state.running = Boolean(parsed.running);
-        state.paused = !state.running && Boolean(parsed.paused);
-        state.expired = false;
-        state.finished = false;
-        state.chimed = false;
-        if (state.running) {
-          syncClock();
-        }
-      } catch (_error) {
-        clearState();
-      }
-    };
-
-    const renderTimer = () => {
-      syncClock();
-      const progress = state.durationSeconds > 0
-        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
-        : 0;
-
-      if (display) {
-        display.textContent = formatClock(state.remainingSeconds);
-      }
-      if (orb) {
-        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
-      }
-
-      if (state.running) {
-        setBadge("計時中", "running");
-        setTimerClasses("running");
-        document.title = baseTitle;
-      } else if (state.expired) {
-        setBadge("時間到了", "expired");
-        setTimerClasses("expired");
-        document.title = `[時間到了] ${baseTitle}`;
-        if (!state.chimed) {
-          playChime();
-          state.chimed = true;
-        }
-      } else if (state.finished) {
-        setBadge("已提前結束", "finished");
-        setTimerClasses("finished");
-        document.title = baseTitle;
-      } else if (state.paused) {
-        setBadge("已暫停", "paused");
-        setTimerClasses("paused");
-        document.title = baseTitle;
-      } else {
-        setBadge("未開始", "idle");
-        setTimerClasses("idle");
-        document.title = baseTitle;
-      }
-
-      if (minutesInput) {
-        if (!state.running) {
-          minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
-        }
-        minutesInput.disabled = state.running;
-      }
-      if (startButton) {
-        startButton.disabled = state.running;
-        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
+      if (activeJobId) {
+        setProgress(0, "正在恢復匯入任務", "這份 PDF 仍在背景處理中，正在同步目前狀態。");
+        void pollJob(activeJobId);
       }
-      if (pauseButton) {
-        pauseButton.disabled = !state.running && !state.paused;
-        pauseButton.textContent = state.paused ? "繼續" : "暫停";
-      }
-      if (finishButton) {
-        finishButton.disabled = !state.running && !state.paused && !state.expired;
-      }
-      extendButtons.forEach((button) => {
-        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
-      });
-      if (alertBox) {
-        alertBox.hidden = !state.expired;
-      }
-
-      saveState();
-    };
-
-    const startTicker = () => {
-      stopTicker();
-      timerHandle = window.setInterval(() => {
-        renderTimer();
-        if (!state.running) {
-          stopTicker();
-        }
-      }, 200);
-    };
-
-    const applyMinutesFromInput = () => {
-      resetToIdle();
-      renderTimer();
-    };
-
-    const startTimer = () => {
-      ensureAudioContext();
-      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
-      applyIdleState(minutes);
-      state.running = true;
-      state.endsAt = Date.now() + state.durationSeconds * 1000;
-      startTicker();
-      renderTimer();
-    };
-
-    const togglePause = () => {
-      if (state.running) {
-        syncClock();
-        if (state.expired) {
-          renderTimer();
-          return;
-        }
-        state.running = false;
-        state.paused = true;
-        state.endsAt = 0;
-        stopTicker();
-        renderTimer();
-        return;
-      }
-
-      if (state.paused) {
-        ensureAudioContext();
-        state.running = true;
-        state.paused = false;
-        state.expired = false;
-        state.finished = false;
-        state.endsAt = Date.now() + state.remainingSeconds * 1000;
-        startTicker();
-        renderTimer();
-      }
-    };
-
-    const extendTimer = (extraMinutes) => {
-      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
-      if (state.running) {
-        syncClock();
-      }
-      state.durationSeconds += extraSeconds;
-      state.remainingSeconds = Math.max(0, state.remainingSeconds) + extraSeconds;
-      state.running = true;
-      state.paused = false;
-      state.expired = false;
-      state.finished = false;
-      state.chimed = false;
-      ensureAudioContext();
-      state.endsAt = Date.now() + state.remainingSeconds * 1000;
-      startTicker();
-      renderTimer();
-    };
-
-    const finishEarly = () => {
-      state.running = false;
-      state.paused = false;
-      state.expired = false;
-      state.finished = true;
-      state.remainingSeconds = 0;
-      state.endsAt = 0;
-      stopTicker();
-      clearState();
-      renderTimer();
-
-      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
-      if (completeForm) {
-        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
-      }
-      if (summaryField instanceof HTMLElement) {
-        window.setTimeout(() => summaryField.focus(), 120);
-      }
-    };
-
-    try {
-      legacyKeys.forEach((key) => window.localStorage.removeItem(key));
-    } catch (_error) {}
-
-    loadState();
-    if (state.running) {
-      if (state.expired) {
-        stopTicker();
-      } else {
-        startTicker();
-      }
-    }
-    renderTimer();
-
-    minutesInput?.addEventListener("change", applyMinutesFromInput);
-    startButton?.addEventListener("click", startTimer);
-    pauseButton?.addEventListener("click", togglePause);
-    finishButton?.addEventListener("click", finishEarly);
-    extendButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        extendTimer(button.dataset.timerExtend);
-      });
-    });
-
-    completeForm?.addEventListener("submit", () => {
-      stopTicker();
-      clearState();
-      document.title = baseTitle;
     });
   }
 
@@ -3549,12 +1415,810 @@
     });
   }
 
+  function rebindImportSubmitLoaders() {
+    const importJobStorageKey = "ls-active-import-job-id";
+
+    document.querySelectorAll("form[data-loading-submit]").forEach((originalForm) => {
+      if (!originalForm.querySelector("[data-import-status-label]")) {
+        return;
+      }
+
+      const form = originalForm.cloneNode(true);
+      originalForm.replaceWith(form);
+
+      const overlay = form.querySelector("[data-submit-loader]");
+      const submitControls = Array.from(form.querySelectorAll("button[type='submit'], input[type='submit']"));
+      const fallbackText = form.dataset.loadingText || "正在處理，請稍候...";
+      const statusLabel = form.querySelector("[data-import-status-label]");
+      const statusDetail = form.querySelector("[data-import-status-detail]");
+      const statusHelp = form.querySelector("[data-import-status-help]");
+      const dismissButton = form.querySelector("[data-import-status-dismiss]");
+      const progressFill = form.querySelector("[data-import-progress-fill]");
+      const progressText = form.querySelector("[data-import-progress-text]");
+      const urlJobId = new URL(window.location.href).searchParams.get("job") || "";
+      let storedJobId = "";
+      try {
+        storedJobId = window.sessionStorage.getItem(importJobStorageKey) || "";
+      } catch (_error) {}
+      const activeJobId = urlJobId || form.dataset.activeImportJobId || storedJobId || "";
+      let pollHandle = 0;
+      let consecutivePollFailures = 0;
+      const maxTransientPollFailures = 6;
+
+      const setSubmittingState = (isSubmitting, options = {}) => {
+        const keepVisible = Boolean(options.keepVisible);
+        form.classList.toggle("is-submitting", isSubmitting);
+        if (overlay) {
+          overlay.hidden = !isSubmitting && !keepVisible;
+        }
+      };
+
+      const setDismissVisible = (visible) => {
+        if (dismissButton instanceof HTMLElement) {
+          dismissButton.hidden = !visible;
+        }
+      };
+
+      const setHelpText = (text) => {
+        if (statusHelp && text) {
+          statusHelp.textContent = text;
+        }
+      };
+
+      const setProgress = (percent, label, detail) => {
+        const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (progressFill) {
+          progressFill.style.width = `${safePercent}%`;
+        }
+        if (progressText) {
+          progressText.textContent = `${Math.round(safePercent)}%`;
+        }
+        if (statusLabel && label) {
+          statusLabel.textContent = label;
+        }
+        if (statusDetail && detail) {
+          statusDetail.textContent = detail;
+        }
+      };
+
+      const setControlsDisabled = (disabled) => {
+        submitControls.forEach((control) => {
+          const loadingText = control.dataset.loadingText || fallbackText;
+          control.disabled = disabled;
+          control.setAttribute("aria-busy", disabled ? "true" : "false");
+
+          if (control instanceof HTMLInputElement) {
+            control.value = disabled
+              ? loadingText
+              : (control.dataset.originalValue || control.defaultValue || control.value);
+            return;
+          }
+
+          if (!control.dataset.originalText) {
+            control.dataset.originalText = control.textContent || "";
+          }
+          control.textContent = disabled ? loadingText : control.dataset.originalText;
+        });
+      };
+
+      const stopPolling = () => {
+        if (pollHandle) {
+          window.clearTimeout(pollHandle);
+          pollHandle = 0;
+        }
+      };
+
+      const persistActiveJobId = (jobId) => {
+        try {
+          if (jobId) {
+            window.sessionStorage.setItem(importJobStorageKey, jobId);
+          } else {
+            window.sessionStorage.removeItem(importJobStorageKey);
+          }
+        } catch (_error) {}
+      };
+
+      const setActiveJobInUrl = (jobId) => {
+        const nextUrl = new URL(window.location.href);
+        if (jobId) {
+          nextUrl.searchParams.set("job", jobId);
+        } else {
+          nextUrl.searchParams.delete("job");
+        }
+        window.history.replaceState({}, "", nextUrl.toString());
+        persistActiveJobId(jobId);
+      };
+
+      const finishPollingWithMessage = (message, options = {}) => {
+        const keepVisible = Boolean(options.keepVisible);
+        stopPolling();
+        setControlsDisabled(false);
+        setSubmittingState(false, { keepVisible });
+        setDismissVisible(keepVisible);
+        if (statusDetail) {
+          statusDetail.textContent = message;
+        }
+      };
+
+      const pollJob = async (jobId) => {
+        stopPolling();
+        setSubmittingState(true);
+        setControlsDisabled(true);
+        setDismissVisible(false);
+
+        try {
+          const response = await fetch(`/imports/${encodeURIComponent(jobId)}`, {
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          });
+          if (!response.ok) {
+            throw new Error("無法取得匯入狀態。");
+          }
+
+          const job = await response.json();
+          consecutivePollFailures = 0;
+          setProgress(job.progress_percent, job.status_label, job.detail || job.error_message || "");
+
+          if (job.status === "completed" && job.resource_id) {
+            setActiveJobInUrl("");
+            window.location.href = `/resources/${encodeURIComponent(job.resource_id)}`;
+            return;
+          }
+
+          if (job.status === "failed") {
+            setActiveJobInUrl(jobId);
+            setHelpText("匯入已停止。你可以直接在這裡看到錯誤，再決定是否重新提交。");
+            finishPollingWithMessage(job.error_message || job.detail || "匯入失敗。", { keepVisible: true });
+            return;
+          }
+
+          setHelpText(
+            job.status === "queued"
+              ? "任務已建立，正在等待背景程序接手。"
+              : "目前仍在背景解析中。即使切換到別的頁面，再回來也會自動恢復這個狀態。",
+          );
+
+          pollHandle = window.setTimeout(() => {
+            void pollJob(jobId);
+          }, 1200);
+        } catch (error) {
+          consecutivePollFailures += 1;
+          const retryMessage = consecutivePollFailures >= maxTransientPollFailures
+            ? "匯入狀態同步暫時失敗。請稍後重新整理頁面；如果背景任務仍存在，頁面會再次接上。"
+            : "和本地服務的連線短暫中斷，正在自動重試匯入狀態。";
+          if (statusDetail) {
+            statusDetail.textContent = retryMessage;
+          }
+          setHelpText("如果你只是中途切到別的頁面，這裡仍會持續自動重試。");
+          if (consecutivePollFailures >= maxTransientPollFailures) {
+            finishPollingWithMessage(
+              error instanceof Error ? `${retryMessage} ${error.message}` : retryMessage,
+              { keepVisible: true },
+            );
+            return;
+          }
+          pollHandle = window.setTimeout(() => {
+            void pollJob(jobId);
+          }, Math.min(5000, 1200 * consecutivePollFailures));
+        }
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setSubmittingState(true);
+        setControlsDisabled(true);
+        setDismissVisible(false);
+        consecutivePollFailures = 0;
+        setHelpText("任務建立後會在背景持續解析；切換頁面再回來，也會自動恢復進度。");
+        setProgress(0, "正在建立匯入任務", "已送出 PDF 匯入請求，正在建立背景任務。");
+
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            headers: {
+              "x-learning-supervisor-import": "async",
+              Accept: "application/json",
+            },
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.detail || "匯入請求失敗。");
+          }
+          setActiveJobInUrl(payload.job_id);
+          await pollJob(payload.job_id);
+        } catch (error) {
+          setControlsDisabled(false);
+          setSubmittingState(false);
+          if (statusDetail) {
+            statusDetail.textContent = error instanceof Error ? error.message : "匯入請求失敗。";
+          }
+        }
+      });
+
+      dismissButton?.addEventListener("click", () => {
+        setSubmittingState(false);
+        setDismissVisible(false);
+      });
+
+      if (activeJobId) {
+        setActiveJobInUrl(activeJobId);
+        setHelpText("這份 PDF 的背景任務仍可追蹤；就算中途離開這一頁，回來也會繼續同步。");
+        setProgress(0, "正在恢復匯入任務", "這份 PDF 仍在背景處理中，正在同步目前狀態。");
+        void pollJob(activeJobId);
+      }
+    });
+  }
+
+  function initTaskTimerV3() {
+    const timerRoot = document.querySelector("[data-task-timer]");
+    if (!timerRoot) {
+      return;
+    }
+
+    const taskId = timerRoot.dataset.taskId || "study-task";
+    const taskSignature = timerRoot.dataset.taskSignature || taskId;
+    const storageKey = `ls-task-timer:v3:${taskSignature}`;
+    const legacyKeys = [`ls-task-timer:${taskId}`, `ls-task-timer:v2:${taskId}`, `ls-task-timer:v3:${taskId}`];
+    const defaultMinutes = Math.max(1, Number(timerRoot.dataset.defaultMinutes) || 25);
+    const display = timerRoot.querySelector("[data-timer-display]");
+    const orb = timerRoot.querySelector("[data-timer-orb]");
+    const stateBadge = timerRoot.querySelector("[data-timer-state]");
+    const minutesInput = timerRoot.querySelector("[data-timer-minutes]");
+    const startButton = timerRoot.querySelector("[data-timer-start]");
+    const pauseButton = timerRoot.querySelector("[data-timer-pause]");
+    const finishButton = timerRoot.querySelector("[data-timer-finish]");
+    const alertBox = timerRoot.querySelector("[data-timer-alert]");
+    const extendButtons = Array.from(timerRoot.querySelectorAll("[data-timer-extend]"));
+    const completeForm = document.querySelector("[data-task-complete-form]");
+    const baseTitle = document.title;
+    const timerStateClassMap = {
+      idle: "status-scheduled",
+      running: "status-live",
+      paused: "status-in_review",
+      expired: "status-active",
+      finished: "status-completed",
+    };
+
+    const buildIdleState = (minutes) => ({
+      durationSeconds: minutes * 60,
+      remainingSeconds: minutes * 60,
+      endsAt: 0,
+      running: false,
+      paused: false,
+      expired: false,
+      finished: false,
+      chimed: false,
+    });
+
+    const state = buildIdleState(defaultMinutes);
+    let timerHandle = 0;
+    let audioContext = null;
+
+    const safeNumber = (value, fallback) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const clampMinutes = (value) => {
+      const parsed = Math.round(safeNumber(value, defaultMinutes));
+      return Math.min(240, Math.max(1, parsed));
+    };
+
+    const setBadge = (text, variant) => {
+      if (!stateBadge) {
+        return;
+      }
+      stateBadge.textContent = text;
+      stateBadge.className = `status-pill ${timerStateClassMap[variant] || timerStateClassMap.idle}`;
+    };
+
+    const setTimerClasses = (variant) => {
+      timerRoot.classList.toggle("is-running", variant === "running");
+      timerRoot.classList.toggle("is-expired", variant === "expired");
+      timerRoot.classList.toggle("is-finished", variant === "finished");
+      timerRoot.classList.toggle("is-paused", variant === "paused");
+    };
+
+    const stopTicker = () => {
+      if (!timerHandle) {
+        return;
+      }
+      window.clearInterval(timerHandle);
+      timerHandle = 0;
+    };
+
+    const clearState = () => {
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch (_error) {}
+    };
+
+    const saveState = () => {
+      try {
+        if (state.running || state.paused) {
+          window.localStorage.setItem(
+            storageKey,
+            JSON.stringify({
+              taskSignature,
+              durationSeconds: state.durationSeconds,
+              remainingSeconds: state.remainingSeconds,
+              endsAt: state.endsAt,
+              running: state.running,
+              paused: state.paused,
+            }),
+          );
+          return;
+        }
+        window.localStorage.removeItem(storageKey);
+      } catch (_error) {}
+    };
+
+    const ensureAudioContext = () => {
+      if (audioContext || !window.AudioContext) {
+        return;
+      }
+      try {
+        audioContext = new window.AudioContext();
+      } catch (_error) {
+        audioContext = null;
+      }
+    };
+
+    const playChime = () => {
+      if (!audioContext) {
+        return;
+      }
+      const startAt = audioContext.currentTime;
+      [0, 0.22].forEach((offset, index) => {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = index === 0 ? 880 : 1046;
+        gain.gain.setValueAtTime(0.0001, startAt + offset);
+        gain.gain.exponentialRampToValueAtTime(0.08, startAt + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.16);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start(startAt + offset);
+        oscillator.stop(startAt + offset + 0.18);
+      });
+    };
+
+    const formatClock = (totalSeconds) => {
+      const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+      const minutes = Math.floor(safeSeconds / 60);
+      const seconds = safeSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    };
+
+    const applyIdleState = (minutes) => {
+      const nextState = buildIdleState(minutes);
+      state.durationSeconds = nextState.durationSeconds;
+      state.remainingSeconds = nextState.remainingSeconds;
+      state.endsAt = nextState.endsAt;
+      state.running = false;
+      state.paused = false;
+      state.expired = false;
+      state.finished = false;
+      state.chimed = false;
+    };
+
+    const ensureIdleState = () => {
+      applyIdleState(clampMinutes(minutesInput ? minutesInput.value : defaultMinutes));
+    };
+
+    const resetToIdle = (minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes)) => {
+      applyIdleState(minutes);
+      stopTicker();
+      clearState();
+    };
+
+    const expireTimer = () => {
+      state.running = false;
+      state.paused = false;
+      state.expired = true;
+      state.finished = false;
+      state.remainingSeconds = 0;
+      state.endsAt = 0;
+      clearState();
+    };
+
+    const syncClock = () => {
+      if (!state.running) {
+        return;
+      }
+      const remainingMs = state.endsAt - Date.now();
+      if (remainingMs <= 0) {
+        expireTimer();
+        return;
+      }
+      state.remainingSeconds = Math.ceil(remainingMs / 1000);
+      state.expired = false;
+    };
+
+    const loadState = () => {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) {
+          ensureIdleState();
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (!parsed || parsed.taskSignature !== taskSignature || (!parsed.running && !parsed.paused)) {
+          clearState();
+          ensureIdleState();
+          return;
+        }
+        state.durationSeconds = Math.max(60, safeNumber(parsed.durationSeconds, state.durationSeconds));
+        state.remainingSeconds = Math.max(0, safeNumber(parsed.remainingSeconds, state.remainingSeconds));
+        state.endsAt = Math.max(0, safeNumber(parsed.endsAt, 0));
+        state.running = Boolean(parsed.running);
+        state.paused = !state.running && Boolean(parsed.paused);
+        state.expired = false;
+        state.finished = false;
+        state.chimed = false;
+        if (state.running) {
+          syncClock();
+        }
+      } catch (_error) {
+        clearState();
+        ensureIdleState();
+      }
+    };
+
+    const renderTimer = () => {
+      syncClock();
+      const progress = state.durationSeconds > 0
+        ? Math.min(1, Math.max(0, 1 - state.remainingSeconds / state.durationSeconds))
+        : 0;
+
+      if (display) {
+        display.textContent = formatClock(state.remainingSeconds);
+      }
+      if (orb) {
+        orb.style.setProperty("--timer-progress", `${(progress * 100).toFixed(2)}%`);
+      }
+
+      if (state.running) {
+        state.expired = false;
+        setBadge("計時中", "running");
+        setTimerClasses("running");
+        document.title = baseTitle;
+      } else if (state.expired) {
+        setBadge("時間到了", "expired");
+        setTimerClasses("expired");
+        document.title = `[時間到了] ${baseTitle}`;
+        if (!state.chimed) {
+          playChime();
+          state.chimed = true;
+        }
+      } else if (state.finished) {
+        setBadge("已提前結束", "finished");
+        setTimerClasses("finished");
+        document.title = baseTitle;
+      } else if (state.paused) {
+        setBadge("已暫停", "paused");
+        setTimerClasses("paused");
+        document.title = baseTitle;
+      } else {
+        state.expired = false;
+        setBadge("未開始", "idle");
+        setTimerClasses("idle");
+        document.title = baseTitle;
+      }
+
+      if (minutesInput) {
+        if (!state.running) {
+          minutesInput.value = String(Math.max(1, Math.round(state.durationSeconds / 60)));
+        }
+        minutesInput.disabled = state.running;
+      }
+      if (startButton) {
+        startButton.disabled = state.running;
+        startButton.textContent = state.paused || state.expired || state.finished ? "重新開始" : "開始計時";
+      }
+      if (pauseButton) {
+        pauseButton.disabled = !state.running && !state.paused;
+        pauseButton.textContent = state.paused ? "繼續" : "暫停";
+      }
+      if (finishButton) {
+        finishButton.disabled = !state.running && !state.paused && !state.expired;
+      }
+      extendButtons.forEach((button) => {
+        button.disabled = (!state.running && !state.paused && !state.expired) || state.finished;
+      });
+      if (alertBox) {
+        alertBox.hidden = !state.expired;
+      }
+
+      saveState();
+    };
+
+    const startTicker = () => {
+      stopTicker();
+      timerHandle = window.setInterval(() => {
+        renderTimer();
+        if (!state.running) {
+          stopTicker();
+        }
+      }, 200);
+    };
+
+    const applyMinutesFromInput = () => {
+      resetToIdle();
+      renderTimer();
+    };
+
+    const startTimer = () => {
+      ensureAudioContext();
+      const minutes = clampMinutes(minutesInput ? minutesInput.value : defaultMinutes);
+      applyIdleState(minutes);
+      state.running = true;
+      state.paused = false;
+      state.expired = false;
+      state.finished = false;
+      state.chimed = false;
+      state.endsAt = Date.now() + state.durationSeconds * 1000;
+      startTicker();
+      renderTimer();
+    };
+
+    const togglePause = () => {
+      if (state.running) {
+        syncClock();
+        if (state.expired) {
+          renderTimer();
+          return;
+        }
+        state.running = false;
+        state.paused = true;
+        state.endsAt = 0;
+        stopTicker();
+        renderTimer();
+        return;
+      }
+
+      if (state.paused) {
+        ensureAudioContext();
+        state.running = true;
+        state.paused = false;
+        state.expired = false;
+        state.finished = false;
+        state.endsAt = Date.now() + state.remainingSeconds * 1000;
+        startTicker();
+        renderTimer();
+      }
+    };
+
+    const extendTimer = (extraMinutes) => {
+      const extraSeconds = Math.max(60, Math.round(safeNumber(extraMinutes, 10)) * 60);
+      if (state.running) {
+        syncClock();
+      }
+      state.durationSeconds += extraSeconds;
+      state.remainingSeconds = Math.max(0, state.remainingSeconds) + extraSeconds;
+      state.running = true;
+      state.paused = false;
+      state.expired = false;
+      state.finished = false;
+      state.chimed = false;
+      ensureAudioContext();
+      state.endsAt = Date.now() + state.remainingSeconds * 1000;
+      startTicker();
+      renderTimer();
+    };
+
+    const finishEarly = () => {
+      state.running = false;
+      state.paused = false;
+      state.expired = false;
+      state.finished = true;
+      state.remainingSeconds = 0;
+      state.endsAt = 0;
+      stopTicker();
+      clearState();
+      renderTimer();
+
+      const summaryField = completeForm ? completeForm.querySelector("textarea[name='summary_text']") : null;
+      if (completeForm) {
+        completeForm.scrollIntoView({ behavior: effectiveMotionLevel === "minimal" ? "auto" : "smooth", block: "start" });
+      }
+      if (summaryField instanceof HTMLElement) {
+        window.setTimeout(() => summaryField.focus(), 120);
+      }
+    };
+
+    try {
+      legacyKeys.forEach((key) => window.localStorage.removeItem(key));
+    } catch (_error) {}
+
+    loadState();
+    if (state.running && !state.expired) {
+      startTicker();
+    }
+    renderTimer();
+
+    window.addEventListener("pageshow", () => {
+      stopTicker();
+      loadState();
+      if (state.running && !state.expired) {
+        startTicker();
+      }
+      renderTimer();
+    });
+
+    minutesInput?.addEventListener("change", applyMinutesFromInput);
+    startButton?.addEventListener("click", startTimer);
+    pauseButton?.addEventListener("click", togglePause);
+    finishButton?.addEventListener("click", finishEarly);
+    extendButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        extendTimer(button.dataset.timerExtend);
+      });
+    });
+
+    completeForm?.addEventListener("submit", () => {
+      stopTicker();
+      clearState();
+      document.title = baseTitle;
+    });
+  }
+
+  function initPdfPreview() {
+    const overlay = document.querySelector("[data-pdf-preview-overlay]");
+    if (!overlay) {
+      return;
+    }
+
+    const dialog = overlay.querySelector("[data-pdf-preview-dialog]");
+    const documentFrame = overlay.querySelector("[data-pdf-preview-document]");
+    const counter = overlay.querySelector("[data-pdf-preview-counter]");
+    const prevButton = overlay.querySelector("[data-pdf-preview-prev]");
+    const nextButton = overlay.querySelector("[data-pdf-preview-next]");
+    const fullscreenButton = overlay.querySelector("[data-pdf-preview-fullscreen]");
+    const closeButtons = Array.from(overlay.querySelectorAll("[data-pdf-preview-close]"));
+    const previewItems = Array.from(document.querySelectorAll("[data-pdf-preview-open]")).filter(
+      (item) => item instanceof HTMLElement,
+    );
+    const pdfDocumentUrl = overlay.dataset.pdfDocumentUrl || "";
+    const pageNumbers = (overlay.dataset.pdfPageNumbers || "")
+      .split(",")
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    const pageLabels = (overlay.dataset.pdfPageLabels || "")
+      .split(",")
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    if (
+      !previewItems.length ||
+      !(documentFrame instanceof HTMLObjectElement) ||
+      !pdfDocumentUrl ||
+      !pageNumbers.length
+    ) {
+      return;
+    }
+
+    let currentIndex = 0;
+    let lastTrigger = null;
+
+    const clampIndex = (index) => Math.max(0, Math.min(pageNumbers.length - 1, index));
+    const buildViewerSrc = (pageNumber) => `${pdfDocumentUrl}#page=${pageNumber}&view=FitH`;
+
+    const renderPreview = () => {
+      const pageNumber = pageNumbers[currentIndex];
+      const pageLabel = pageLabels[currentIndex] || pageNumber;
+      if (!Number.isInteger(pageNumber)) {
+        return;
+      }
+
+      const viewerSrc = buildViewerSrc(pageNumber);
+      documentFrame.data = viewerSrc;
+      documentFrame.setAttribute("data", viewerSrc);
+      documentFrame.title = `PDF 第 ${pageNumber} 頁`;
+
+      if (counter) {
+        counter.textContent = `第 ${pageNumber} 頁 / 共 ${pageNumbers.length} 頁`;
+      }
+      if (prevButton instanceof HTMLButtonElement) {
+        prevButton.disabled = currentIndex <= 0;
+      }
+      if (nextButton instanceof HTMLButtonElement) {
+        nextButton.disabled = currentIndex >= pageNumbers.length - 1;
+      }
+    };
+
+    const openPreview = (index, trigger = null) => {
+      currentIndex = clampIndex(index);
+      lastTrigger = trigger;
+      renderPreview();
+      overlay.hidden = false;
+      overlay.setAttribute("aria-hidden", "false");
+      document.body.classList.add("is-overlay-open");
+      if (dialog instanceof HTMLElement) {
+        dialog.focus({ preventScroll: true });
+      }
+    };
+
+    const closePreview = () => {
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("is-overlay-open");
+      if (lastTrigger instanceof HTMLElement) {
+        lastTrigger.focus({ preventScroll: true });
+      }
+    };
+
+    const movePreview = (delta) => {
+      const nextIndex = currentIndex + delta;
+      if (nextIndex < 0 || nextIndex >= pageNumbers.length) {
+        return;
+      }
+      currentIndex = nextIndex;
+      renderPreview();
+    };
+
+    previewItems.forEach((item, index) => {
+      const pageIndex = Number.parseInt(item.dataset.pdfPageIndex || String(index), 10);
+      const safeIndex = Number.isInteger(pageIndex) ? clampIndex(pageIndex) : clampIndex(index);
+
+      item.addEventListener("click", () => openPreview(safeIndex, item));
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openPreview(safeIndex, item);
+        }
+      });
+    });
+
+    closeButtons.forEach((button) => {
+      button.addEventListener("click", closePreview);
+    });
+
+    prevButton?.addEventListener("click", () => movePreview(-1));
+    nextButton?.addEventListener("click", () => movePreview(1));
+    fullscreenButton?.addEventListener("click", async () => {
+      if (!(dialog instanceof HTMLElement) || !dialog.requestFullscreen) {
+        return;
+      }
+      try {
+        if (document.fullscreenElement === dialog && document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else {
+          await dialog.requestFullscreen();
+        }
+      } catch (_error) {}
+    });
+
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePreview();
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        movePreview(-1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        movePreview(1);
+      }
+    });
+  }
+
   initLoader();
   initMagneticButtons();
   initHeaderBehavior();
   initPointerGlow();
   initExpandableSections();
   initSubmitLoaders();
+  rebindImportSubmitLoaders();
   initTaskTimerV3();
+  initPdfPreview();
   initAmbientSketch();
 })();

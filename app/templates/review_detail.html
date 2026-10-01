@@ -14,9 +14,9 @@
     <h1>{{ review.unit.title }}</h1>
     <p class="hero-copy">
       {% if review.unit.resource.learning_mode == "dictation" %}
-      先從記憶中回想內容結構，再對照原始 PDF 頁面核對。
+      先憑記憶回想內容結構，再對照左側 PDF 原文核對偏差。
       {% else %}
-      先嘗試重述核心想法，再閱讀原始頁面，讓這次複習更真實反映你的保留程度。
+      先重述你記得的核心想法，再回頭看原始頁面，讓這次複習真正反映保留程度。
       {% endif %}
     </p>
     <div class="hero-inline-chips">
@@ -52,7 +52,7 @@
 </section>
 
 <section class="detail-grid">
-  <article class="panel reading-panel">
+  <article class="panel reading-panel{% if pdf_available %} reading-panel--pdf{% endif %}">
     <div class="panel-header">
       <div>
         <p class="eyebrow">原始頁面</p>
@@ -62,20 +62,7 @@
     <div class="reading-stage">
       <div class="study-sheet study-sheet-{{ app_settings.study_material_theme }}{% if pdf_available %} study-sheet-pdf{% endif %}">
         {% if pdf_available %}
-        <div class="pdf-page-stack" aria-label="PDF 頁面預覽">
-          {% for page_number in pdf_page_numbers %}
-          <figure class="pdf-page-frame">
-            <img
-              src="/resources/{{ review.unit.resource.id }}/pdf-pages/{{ page_number }}.png"
-              alt="{{ review.unit.title }} - 第 {{ page_number }} 頁"
-              class="pdf-page-image"
-              loading="lazy"
-              decoding="async"
-            >
-            <figcaption>第 {{ page_number }} 頁</figcaption>
-          </figure>
-          {% endfor %}
-        </div>
+        {% include "partials/review_pdf_stack.html" %}
         {% else %}
         <div class="markdown-body markdown-body-sheet">{{ content_html }}</div>
         {% endif %}
@@ -87,7 +74,7 @@
     <div class="panel-header">
       <div>
         <p class="eyebrow">複習回報</p>
-        <h2>還保留了多少？</h2>
+        <h2>這次還保留了多少？</h2>
       </div>
     </div>
 
@@ -96,16 +83,16 @@
         <strong>{% if review.unit.resource.learning_mode == "dictation" %}先回想再核對{% else %}先重述再閱讀{% endif %}</strong>
         <p>
           {% if review.unit.resource.learning_mode == "dictation" %}
-          這裡要看的不是你能不能認得，而是你能不能從記憶中重建。
+          這裡要看的不是你能不能看懂，而是你能不能從記憶裡重新建構。
           {% else %}
-          請先寫出你還記得的內容，再回頭看 PDF，這樣信心分數才有意義。
+          先寫下你還記得的內容，再回頭看 PDF，這樣信心分數才有意義。
           {% endif %}
         </p>
       </article>
 
       <article class="protocol-card">
         <strong>精確指出缺口</strong>
-        <p>請具體說明忘掉的是定理陳述、證明步驟、公式，還是觀念之間的連接。</p>
+        <p>請具體寫明忘掉的是定理條件、證明步驟、公式，還是概念之間的連接。</p>
       </article>
 
       {% if has_math_content %}
@@ -115,7 +102,7 @@
         <p>這個單元的公式會直接以排版形式顯示在頁面上。</p>
         {% else %}
         <strong>公式排版未啟用</strong>
-        <p>這個單元包含公式。如果你希望以排版形式顯示，請到設定中開啟。</p>
+        <p>這個單元包含公式。如果你希望以排版形式顯示，請到設定頁開啟。</p>
         {% endif %}
       </article>
       {% endif %}
@@ -127,7 +114,7 @@
         <textarea
           name="summary_text"
           rows="6"
-          placeholder="{% if review.unit.resource.learning_mode == 'dictation' %}在查看原始內容前，先寫下你還能回想出的命題、公式、證明思路或結構。{% else %}先寫下你在重新閱讀 PDF 前，還能重述的核心觀念。{% endif %}"
+          placeholder="{% if review.unit.resource.learning_mode == 'dictation' %}先寫下你在不看原文時，還能重建出的命題、公式、結構或證明思路。{% else %}先寫下你在重新閱讀 PDF 前，還能重述出的核心觀念。{% endif %}"
           required
         ></textarea>
       </label>
@@ -137,7 +124,7 @@
         <textarea
           name="reflection_note"
           rows="4"
-          placeholder="選填：記下記憶斷掉的精確位置。"
+          placeholder="選填：把記憶空缺寫得越具體，後續追補越有效。"
         ></textarea>
       </label>
 
@@ -156,4 +143,43 @@
     </form>
   </article>
 </section>
+{% if pdf_available %}
+<div
+  class="pdf-preview-overlay"
+  data-pdf-preview-overlay
+  data-pdf-document-url="{{ pdf_document_url }}"
+  data-pdf-page-numbers="{{ pdf_viewer_page_numbers|join(',') }}"
+  data-pdf-page-labels="{{ pdf_page_numbers|join(',') }}"
+  hidden
+  aria-hidden="true"
+>
+  <div class="pdf-preview-backdrop" data-pdf-preview-close></div>
+  <div class="pdf-preview-dialog" data-pdf-preview-dialog role="dialog" aria-modal="true" aria-label="PDF 全屏查看" tabindex="-1">
+    <div class="pdf-preview-toolbar">
+      <div class="pdf-preview-meta">
+        <strong>{{ review.unit.resource.title }}</strong>
+        <span data-pdf-preview-counter></span>
+      </div>
+      <div class="pdf-preview-actions">
+        <button type="button" class="button button-secondary task-mini-button" data-pdf-preview-fullscreen>切換全屏</button>
+        <button type="button" class="button magnetic-button task-mini-button" data-pdf-preview-close>關閉</button>
+      </div>
+    </div>
+    <div class="pdf-preview-stage">
+      <object
+        data=""
+        type="application/pdf"
+        class="pdf-preview-document"
+        data-pdf-preview-document
+        aria-label="PDF 全屏查看"
+      >
+        <div class="pdf-preview-document-fallback">
+          <p>此裝置無法直接內嵌顯示 PDF。</p>
+          <a href="{{ pdf_document_url }}" target="_blank" rel="noopener noreferrer">直接打開原始 PDF</a>
+        </div>
+      </object>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

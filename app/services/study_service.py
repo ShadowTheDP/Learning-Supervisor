@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import uuid
@@ -8,13 +9,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from markdown import markdown
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import RESOURCES_DIR
 from ..models import CheckIn, DailyTask, LearningUnit, Resource, ReviewTask, StudyPlan
-from .markdown_ingest import UnitHint, split_markdown_into_units, unique_slug
-from .pdf_ingest import load_pdf_source, write_pdf_artifacts
+from .markdown_ingest import UnitHint, normalize_title, split_markdown_into_units, unique_slug
+from .pdf_ingest import deserialize_unit_hints, load_pdf_source, write_pdf_artifacts
 from .scheduler import SchedulableUnit, build_study_schedule
 
 
@@ -25,9 +26,12 @@ MATH_PATTERN = re.compile(r"(\$\$.*?\$\$|\$[^$\n]+\$|\\\(.+?\\\)|\\\[.+?\\\])", 
 @dataclass(slots=True)
 class DashboardSummary:
     today: date
+    study_pending: list[DailyTask]
     study_due: list[DailyTask]
+    review_pending: list[ReviewTask]
     review_due: list[ReviewTask]
     resources: list[Resource]
+    pending_count: int
     due_today_count: int
     overdue_count: int
     completed_today_count: int
@@ -63,6 +67,70 @@ def validate_resource_plan_inputs(
         raise ValueError("請提供本地檔案路徑。")
 
     return normalized_title, normalized_description, normalized_source_path
+
+
+def _resource_workspace(resource: Resource) -> Path:
+    markdown_path = Path(resource.stored_markdown_path).expanduser()
+    workspace = markdown_path.parent
+    if workspace.name == "docling":
+        return workspace.parent
+    return workspace
+
+
+def _resource_outline_path(resource: Resource) -> Path:
+    return _resource_workspace(resource) / "docling" / "outline.json"
+
+
+def resource_needs_page_range_repair(resource: Resource) -> bool:
+    if resource.source_type != "pdf_file":
+        return False
+    if not resource.learning_units:
+        return False
+    return any(unit.page_start is not None for unit in resource.learning_units)
+
+
+def _derive_cached_resource_units(resource: Resource) -> list | None:
+    markdown_path = Path(resource.stored_markdown_path).expanduser()
+    outline_path = _resource_outline_path(resource)
+    if not markdown_path.exists() or not outline_path.exists():
+        return None
+
+    markdown_text = markdown_path.read_text(encoding="utf-8")
+    raw_outline = json.loads(outline_path.read_text(encoding="utf-8"))
+    unit_hints = deserialize_unit_hints(raw_outline)
+    return split_markdown_into_units(markdown_text, unit_hints=unit_hints)
+
+
+def repair_resource_page_ranges(session: Session, resource: Resource) -> bool:
+    if not resource_needs_page_range_repair(resource):
+        return False
+
+    derived_units = _derive_cached_resource_units(resource)
+    if derived_units is None:
+        return False
+
+    existing_units = list(resource.learning_units)
+    if len(existing_units) != len(derived_units):
+        return False
+
+    for existing_unit, derived_unit in zip(existing_units, derived_units):
+        if normalize_title(existing_unit.title) != normalize_title(derived_unit.title):
+            return False
+
+    changed = False
+    for existing_unit, derived_unit in zip(existing_units, derived_units):
+        if existing_unit.page_start != derived_unit.page_start:
+            existing_unit.page_start = derived_unit.page_start
+            changed = True
+        if existing_unit.page_end != derived_unit.page_end:
+            existing_unit.page_end = derived_unit.page_end
+            changed = True
+
+    if not changed:
+        return False
+
+    session.commit()
+    return True
 
 
 def persist_resource_plan(
@@ -165,6 +233,7 @@ def create_resource_plan(
     learning_mode: str,
     review_intervals_csv: str,
     allow_weekend_scheduling: bool,
+    progress_callback=None,
 ) -> Resource:
     title, description, source_path = validate_resource_plan_inputs(
         title=title,
@@ -182,6 +251,7 @@ def create_resource_plan(
         markdown_text, source_reference, unit_hints = load_pdf_source(
             source_path,
             artifact_dir=resource_dir,
+            progress_callback=progress_callback,
         )
         return persist_resource_plan(
             session,
@@ -265,7 +335,9 @@ def get_dashboard_summary(session: Session, today: date | None = None) -> Dashbo
     )
     resources = list(session.scalars(resource_query).unique())
 
+    study_pending: list[DailyTask] = []
     study_due: list[DailyTask] = []
+    review_pending: list[ReviewTask] = []
     review_due: list[ReviewTask] = []
     overdue_count = 0
     completed_today_count = 0
@@ -275,32 +347,43 @@ def get_dashboard_summary(session: Session, today: date | None = None) -> Dashbo
             for task in unit.daily_tasks:
                 if task.completed_at and task.completed_at.date() == today:
                     completed_today_count += 1
-                if task.status != "completed" and task.due_date <= today:
-                    study_due.append(task)
-                    if task.due_date < today:
-                        overdue_count += 1
+                if task.status != "completed":
+                    study_pending.append(task)
+                    if task.due_date <= today:
+                        study_due.append(task)
+                        if task.due_date < today:
+                            overdue_count += 1
 
             for review in unit.review_tasks:
                 if review.completed_at and review.completed_at.date() == today:
                     completed_today_count += 1
-                if review.status != "completed" and review.due_date <= today:
-                    review_due.append(review)
-                    if review.due_date < today:
-                        overdue_count += 1
+                if review.status != "completed":
+                    review_pending.append(review)
+                    if review.due_date <= today:
+                        review_due.append(review)
+                        if review.due_date < today:
+                            overdue_count += 1
 
+    study_pending.sort(key=lambda task: (task.due_date, task.unit.resource.priority * -1, task.unit.order_index))
     study_due.sort(key=lambda task: (task.due_date, task.unit.resource.priority * -1, task.unit.order_index))
+    review_pending.sort(
+        key=lambda review: (review.due_date, review.unit.resource.priority * -1, review.unit.order_index)
+    )
     review_due.sort(key=lambda review: (review.due_date, review.unit.resource.priority * -1, review.unit.order_index))
 
     return DashboardSummary(
         today=today,
+        study_pending=study_pending,
         study_due=study_due,
+        review_pending=review_pending,
         review_due=review_due,
         resources=resources,
+        pending_count=len(study_pending) + len(review_pending),
         due_today_count=len([task for task in study_due if task.due_date == today])
         + len([review for review in review_due if review.due_date == today]),
         overdue_count=overdue_count,
         completed_today_count=completed_today_count,
-        active_resource_count=len(resources),
+        active_resource_count=sum(1 for resource in resources if resource.status != "completed"),
     )
 
 
@@ -315,7 +398,30 @@ def get_resource(session: Session, resource_id: str) -> Resource | None:
             joinedload(Resource.learning_units).joinedload(LearningUnit.check_ins),
         )
     )
-    return session.scalars(query).unique().first()
+    resource = session.scalars(query).unique().first()
+    if resource is None:
+        return None
+    if repair_resource_page_ranges(session, resource):
+        return session.scalars(query).unique().first()
+    return resource
+
+
+def delete_resource(session: Session, resource_id: str) -> bool:
+    resource = get_resource(session, resource_id)
+    if resource is None:
+        return False
+
+    markdown_path = Path(resource.stored_markdown_path)
+    resource_dir = markdown_path.parent
+    if resource_dir.name == "docling":
+        resource_dir = resource_dir.parent
+
+    session.execute(delete(Resource).where(Resource.id == resource_id))
+    session.commit()
+
+    if resource_dir.exists() and resource_dir.is_dir():
+        shutil.rmtree(resource_dir, ignore_errors=True)
+    return True
 
 
 def get_daily_task(session: Session, task_id: str) -> DailyTask | None:
@@ -327,7 +433,12 @@ def get_daily_task(session: Session, task_id: str) -> DailyTask | None:
             joinedload(DailyTask.unit).joinedload(LearningUnit.check_ins),
         )
     )
-    return session.scalars(query).unique().first()
+    task = session.scalars(query).unique().first()
+    if task is None:
+        return None
+    if repair_resource_page_ranges(session, task.unit.resource):
+        return session.scalars(query).unique().first()
+    return task
 
 
 def get_review_task(session: Session, review_id: str) -> ReviewTask | None:
@@ -339,7 +450,12 @@ def get_review_task(session: Session, review_id: str) -> ReviewTask | None:
             joinedload(ReviewTask.unit).joinedload(LearningUnit.check_ins),
         )
     )
-    return session.scalars(query).unique().first()
+    review = session.scalars(query).unique().first()
+    if review is None:
+        return None
+    if repair_resource_page_ranges(session, review.unit.resource):
+        return session.scalars(query).unique().first()
+    return review
 
 
 def review_is_available(review: ReviewTask, today: date | None = None) -> bool:
@@ -466,5 +582,13 @@ def content_has_math(markdown_text: str) -> bool:
 
 def _refresh_resource_status(resource: Resource) -> None:
     daily_tasks = [task for unit in resource.learning_units for task in unit.daily_tasks]
-    if daily_tasks and all(task.status == "completed" for task in daily_tasks):
+    review_tasks = [task for unit in resource.learning_units for task in unit.review_tasks]
+
+    if daily_tasks and any(task.status != "completed" for task in daily_tasks):
+        resource.status = "active"
+        return
+    if review_tasks and any(task.status != "completed" for task in review_tasks):
         resource.status = "in_review"
+        return
+    if daily_tasks or review_tasks:
+        resource.status = "completed"

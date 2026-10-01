@@ -1,0 +1,24 @@
+<div class="pdf-inline-preview-stack" aria-label="PDF 頁面預覽">
+  {% for preview_page in pdf_inline_preview_pages %}
+  <figure class="pdf-native-preview-card">
+    <div class="pdf-native-preview-shell">
+      <img
+        src="/resources/{{ review.unit.resource.id }}/pdf-pages/{{ preview_page['source_page_number'] }}.png"
+        class="pdf-native-preview-frame"
+        alt="{{ review.unit.title }} - 第 {{ preview_page['source_page_number'] }} 頁"
+        loading="lazy"
+        decoding="async"
+      >
+      <button
+        type="button"
+        class="pdf-native-open-button"
+        data-pdf-preview-open
+        data-pdf-page-index="{{ loop.index0 }}"
+        data-pdf-page-number="{{ preview_page['source_page_number'] }}"
+        aria-label="打開 PDF 第 {{ preview_page['source_page_number'] }} 頁"
+      ></button>
+    </div>
+    <figcaption>第 {{ preview_page['source_page_number'] }} 頁</figcaption>
+  </figure>
+  {% endfor %}
+</div>

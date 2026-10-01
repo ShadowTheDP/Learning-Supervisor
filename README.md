@@ -23,12 +23,19 @@ Tracked today:
   check-ins
 - PDF import from local `.pdf` files through local Docling, with
   chapter/page-range hints propagated into learning units
+- background import jobs for long PDF parsing, with persisted job state and
+  worker logs under `data/state/import_jobs/`
+- Docling-linked import progress updates, plus automatic failure repair when a
+  background worker exits early
 - deadline-based task scheduling
 - server-rendered dashboard, import flow, study flow, and review flow
 - adjustable study-task timer UI with extend / early-finish controls
+- chapter-scoped PDF reading on study and review pages, where the left column
+  shows only the first two preview pages and click-to-open reading uses the
+  original PDF bytes for that unit's page range
 - corrected task-mode display for application versus dictation work
-- unit tests for unit splitting, PDF structure hints, labels, and
-  scheduling
+- unit tests for unit splitting, PDF structure hints, labels, scheduling,
+  import-job state, and PDF page viewing
 
 Still not implemented:
 
@@ -45,25 +52,39 @@ alone. Start here, then confirm against the current files.
 Read in this order:
 
 1. This `README.md`
-2. `Changing Description.txt`
-3. `app/static/app.js` and `app/static/app.css` when the task touches UI or
+2. `AGENTS.md`
+3. `MEMORY.md`
+4. `docs/agent/current-state.md`
+5. `Changing Description.txt` only when historical detail is needed
+6. `app/static/app.js` and `app/static/app.css` when the task touches UI or
    motion
-4. The relevant template or backend file for the current task
+7. The relevant template or backend file for the current task
 
-Current reality as of 2026-06-07:
+Current reality as of 2026-06-27:
 
 - The app is already a runnable Chinese local web app, not just an MVP plan.
 - The product is intentionally single-user, localhost-first, and should not
   read like a commercial landing page.
 - The import and settings pages are intentionally kept as centered panels
   because the user likes the way they interact with the animated background.
-- The most active UI work is currently the background 2D animation, especially
-  on the import and settings pages.
+- Docling is still the core PDF parser. Do not replace it unless a human
+  explicitly changes that decision.
+- The most active runtime work is currently long-PDF import stability plus
+  study/review PDF presentation, not a broad UI redesign.
 - PDF ingest now defaults back to local Docling execution, with formula
   enrichment disabled by default to reduce local load, EasyOCR kept as an
   optional local OCR layer for scanned pages, and remote `docling-serve`
   preserved only as an explicit fallback backend.
-- Study-task pages use an adjustable local timer instead of exposing the
+- Importing a PDF now creates a background job. The browser polls
+  `data/state/import_jobs/`-backed state instead of holding the main request
+  open, so navigation and reload are recoverable during long parsing runs.
+- Study and review pages now keep the left preview clean by rendering only the
+  first two unit pages as cached PNG images. Clicking a preview opens the
+  chapter-scoped PDF subset in an overlay/fullscreen reader that still uses
+  the original PDF content rather than OCR or Markdown reflow.
+- `app/static/app.js` now contains one active implementation for import polling,
+  task timer behavior, and PDF preview.
+- Study-task pages still use an adjustable local timer instead of exposing the
   scheduled minutes as a fixed user-facing duration.
 
 Current animation direction:
@@ -88,12 +109,22 @@ Current product-tone constraints:
 
 Current handoff note:
 
-- This project does not currently rely on an active RecallLoom continuity
-  harness.
-- For practical handoff, trust this `README.md`, `Changing Description.txt`,
-  the current code, and the documented validation commands.
+- For practical handoff, trust `README.md`, `AGENTS.md`, `MEMORY.md`,
+  `docs/agent/current-state.md`, the current code, and the documented
+  validation commands.
 - Treat runtime-sensitive directories such as `data/state/` as application
   state, not as general cleanup targets.
+- For current PDF/import work, inspect these files first:
+  `app/services/import_jobs.py`, `app/services/import_job_worker.py`,
+  `app/services/pdf_page_viewer.py`, `app/templates/resource_form.html`,
+  `app/templates/task_detail.html`, `app/templates/review_detail.html`,
+  `app/templates/partials/task_pdf_stack.html`,
+  `app/templates/partials/review_pdf_stack.html`, and the tail end of
+  `app/static/app.js`.
+- For browser verification on this Windows machine, prefer a clean
+  non-`--reload` `uvicorn` process. Repeated `--reload` verification has been
+  prone to stale worker/reloader states during long Docling imports and can
+  look like random disconnects or `failed to fetch`.
 
 Recommended validation after UI or motion changes:
 
@@ -229,11 +260,17 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Run the app:
+Run the app for normal browser verification on this Windows machine:
 
 ```powershell
-.venv\Scripts\Activate.ps1
-python -m uvicorn app.main:app --reload
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Use `--reload` only when you are iterating quickly on code and are not trying
+to prove long PDF import stability:
+
+```powershell
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
 Recommended for normal use: keep the PDF backend local and prefetch the needed
@@ -404,8 +441,13 @@ Current structure:
 ```text
 Learning-Supervisor/
   README.md
+  AGENTS.md
+  MEMORY.md
   Changing Description.txt
   requirements.txt
+  docs/
+    agent/
+      current-state.md
   app/
     main.py
     config.py
@@ -425,7 +467,12 @@ Use:
 
 - `data/resources/` for normalized Markdown and PDF-derived artifacts stored in
   the app's local workspace
-- `data/state/` for the SQLite database
+- `data/resources/<resource-id>/pdf_pages/` for cached rendered PNG page
+  previews
+- `data/resources/<resource-id>/pdf_subsets/` for cached unit/chapter PDF
+  subsets and other viewer artifacts
+- `data/state/` for the SQLite database plus import-job state
+- `data/state/import_jobs/` for background import JSON state and worker logs
 - `output/` for generated exports, reports, or debug artifacts
 
 ## First Build Order
@@ -450,14 +497,18 @@ If you are an AI agent working in this repo:
 3. Keep the project single-user unless a human explicitly changes the goal.
 4. Prefer the local Docling path for PDF ingest unless a human explicitly asks
    to switch back to a remote backend.
-5. Keep raw study source material in `../../Project-source/` when possible.
-6. Put generated artifacts in `output/`.
-7. Keep structured local app state under `data/`, not in the repo root.
-8. Prefer dependable local workflows over provider-specific shortcuts.
-9. Do not add auth, cloud sync, or multi-user assumptions unless asked.
-10. Update `Changing Description.txt` after meaningful completed work.
-11. If the architecture changes, update this README in the same task.
-12. Before continuing abandoned UI work, check `Current Agent Handoff` above
+5. Do not replace Docling as the parser core unless a human explicitly asks
+   for that architecture change.
+6. Keep raw study source material in `../../Project-source/` when possible.
+7. Put generated artifacts in `output/`.
+8. Keep structured local app state under `data/`, not in the repo root.
+9. Prefer dependable local workflows over provider-specific shortcuts.
+10. If you touch import polling, task timers, or PDF preview, inspect the
+    active definitions in `app/static/app.js` before editing.
+11. Do not add auth, cloud sync, or multi-user assumptions unless asked.
+12. Update `Changing Description.txt` after meaningful completed work.
+13. If the architecture changes, update this README in the same task.
+14. Before continuing abandoned UI work, check `Current Agent Handoff` above
     for the latest user-approved direction and current visual constraints.
 
 ## Current MVP Boundary
@@ -465,10 +516,13 @@ If you are an AI agent working in this repo:
 The current first implementation intentionally supports:
 
 - local PDF import through Docling
+- background import-job execution for long PDF parsing
 - automatic section splitting from headings
 - fixed deadline scheduling
 - written completion evidence
 - per-study-task adjustable local timer
+- chapter-scoped PDF reading that preserves original PDF bytes in the overlay
+  viewer and uses only two clean inline preview pages on the left
 - fixed-interval reviews at `1, 3, 7, 14` days
 
 The current implementation intentionally does not yet support:
@@ -495,11 +549,16 @@ Before pushing to GitHub, check:
 - The current UI is already usable, but it is still version-one product UI
   rather than a fully refined visual system.
 - URL ingestion still needs a concrete parsing strategy.
+- `app/static/app.js` has been consolidated to one active implementation for
+  import polling, task timers, and PDF preview.
 - Local bootstrap still depends on Hugging Face for Docling core artifacts, so
   a first-time setup can still hit Hugging Face SSL verification problems on
   this Windows machine. `scripts/bootstrap_docling_easyocr.py` avoids
   RapidOCR / ModelScope and keeps EasyOCR on GitHub, but it does not remove
   Hugging Face from the Docling core model path.
+- Import progress is now tied to real Docling page callbacks plus later
+  task-generation phases, but the final post-parse portion is still coarser
+  than true per-substep backend instrumentation.
 - Review scheduling currently uses a fixed interval rule rather than an
   adaptive algorithm.
 - Evidence quality needs tuning so the app encourages real study without

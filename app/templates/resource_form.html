@@ -25,6 +25,7 @@
       class="resource-form resource-form-structured"
       data-loading-submit
       data-loading-text="正在導入 PDF，請稍候..."
+      {% if active_import_job_id %}data-active-import-job-id="{{ active_import_job_id }}"{% endif %}
     >
       <section class="form-section">
         <div class="form-section-head">
@@ -128,8 +129,26 @@
         <div class="submit-loader-card" role="status" aria-live="polite" aria-atomic="true">
           <div class="submit-loader-spinner" aria-hidden="true"></div>
           <div class="submit-loader-copy">
-            <strong>正在分析 PDF</strong>
-            <p>系統正在抽取結構、建立單元並生成任務。這一步可能需要一些時間，請不要關閉頁面。</p>
+            <strong data-import-status-label>正在分析 PDF</strong>
+            <p data-import-status-detail>系統正在抽取結構、建立單元並生成任務。這一步可能需要一些時間，請不要關閉頁面。</p>
+            <div class="loader-progress-track submit-job-progress" aria-hidden="true">
+              <span class="loader-progress-fill" data-import-progress-fill style="width: 0%"></span>
+            </div>
+            <div class="loader-status-row submit-job-progress-meta">
+              <span>目前進度</span>
+              <strong data-import-progress-text>0%</strong>
+            </div>
+            <p class="task-subtle submit-job-help" data-import-status-help>
+              匯入任務已交給後台處理，就算 PDF 很長，儀表板也不應再被整個拖住。
+            </p>
+            <button
+              type="button"
+              class="button button-secondary submit-loader-dismiss"
+              data-import-status-dismiss
+              hidden
+            >
+              收起提示
+            </button>
           </div>
         </div>
       </div>

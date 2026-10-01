@@ -10,13 +10,13 @@
       <span class="signal-pill">學習任務</span>
       <span class="hero-date">{{ task.due_date.isoformat() }}</span>
     </div>
-    <p class="eyebrow">準備開始</p>
+    <p class="eyebrow">開始本次學習</p>
     <h1>{{ task.unit.title }}</h1>
     <p class="hero-copy">
       {% if task.unit.resource.learning_mode == "dictation" %}
-      先憑記憶重建內容，再使用 PDF 頁面核對你遺漏的部分。
+      先憑記憶重建內容，再用左側 PDF 原文核對遺漏與錯位的部分。
       {% else %}
-      先仔細閱讀相關頁面，再留下精簡回報，證明你已經理解這段內容。
+      先讀通這一章的原始頁面，再留下你自己的摘要與反思，證明你真的理解了這段內容。
       {% endif %}
     </p>
     <div class="hero-inline-chips">
@@ -37,7 +37,7 @@
     </article>
     <article class="mini-stat-card">
       <span>頁碼</span>
-      <strong>{{ task.unit.page_range_label or "未對應頁碼" }}</strong>
+      <strong>{{ task.unit.page_range_label or "未提供頁碼" }}</strong>
     </article>
     <article class="mini-stat-card">
       <span>內容類型</span>
@@ -51,7 +51,7 @@
 </section>
 
 <section class="detail-grid">
-  <article class="panel reading-panel">
+  <article class="panel reading-panel{% if pdf_available %} reading-panel--pdf{% endif %}">
     <div class="panel-header">
       <div>
         <p class="eyebrow">原始頁面</p>
@@ -61,20 +61,7 @@
     <div class="reading-stage">
       <div class="study-sheet study-sheet-{{ app_settings.study_material_theme }}{% if pdf_available %} study-sheet-pdf{% endif %}">
         {% if pdf_available %}
-        <div class="pdf-page-stack" aria-label="PDF 頁面預覽">
-          {% for page_number in pdf_page_numbers %}
-          <figure class="pdf-page-frame">
-            <img
-              src="/resources/{{ task.unit.resource.id }}/pdf-pages/{{ page_number }}.png"
-              alt="{{ task.unit.title }} - 第 {{ page_number }} 頁"
-              class="pdf-page-image"
-              loading="lazy"
-              decoding="async"
-            >
-            <figcaption>第 {{ page_number }} 頁</figcaption>
-          </figure>
-          {% endfor %}
-        </div>
+        {% include "partials/task_pdf_stack.html" %}
         {% else %}
         <div class="markdown-body markdown-body-sheet">{{ content_html }}</div>
         {% endif %}
@@ -86,7 +73,7 @@
     <div class="panel-header">
       <div>
         <p class="eyebrow">學習回報</p>
-        <h2>完成這次學習區塊</h2>
+        <h2>完成這次學習</h2>
       </div>
     </div>
 
@@ -94,6 +81,7 @@
       class="task-timer-panel"
       data-task-timer
       data-task-id="{{ task.id }}"
+      data-task-signature="{{ task.id }}:{{ task.unit.id }}:{{ task.due_date.isoformat() }}"
       data-task-title="{{ task.unit.title }}"
       data-default-minutes="25"
     >
@@ -127,16 +115,16 @@
 
       <div class="task-timer-alert" data-timer-alert hidden>
         <strong>時間到了。</strong>
-        <p>你可以再延長 10 分鐘，或直接填寫學習回報。</p>
+        <p>你可以再延長 10 分鐘，或直接填寫本次學習回報。</p>
       </div>
     </section>
 
     <div class="protocol-stack compact-protocol">
       <article class="protocol-card">
-        <strong>{% if task.unit.resource.learning_mode == "dictation" %}先重建內容{% else %}請用自己的話表達{% endif %}</strong>
+        <strong>{% if task.unit.resource.learning_mode == "dictation" %}先重建內容{% else %}先用自己的話整理{% endif %}</strong>
         <p>
           {% if task.unit.resource.learning_mode == "dictation" %}
-          目標是重建，而不是只是眼熟。先嘗試重述關鍵命題、結構或公式，再回頭查看原文。
+          目標是重建，而不是只看懂。先口述命題、結構或公式，再回頭核對 PDF 原文。
           {% else %}
           你的總結應該能證明你已經能使用這段材料，而不只是看過。
           {% endif %}
@@ -144,8 +132,8 @@
       </article>
 
       <article class="protocol-card">
-        <strong>寫下卡住的位置</strong>
-        <p>現在把困惑記下來，之後的複習才能精準打到薄弱點。</p>
+        <strong>記下卡住的位置</strong>
+        <p>現在就把困惑寫下來，之後的複習才能真正打到薄弱點。</p>
       </article>
 
       {% if has_math_content %}
@@ -155,7 +143,7 @@
         <p>這個頁面的數學公式會直接以排版形式顯示，而不是保留原始 Markdown 語法。</p>
         {% else %}
         <strong>公式排版未啟用</strong>
-        <p>這個單元包含數學內容。如果你希望公式以排版形式顯示，請到設定中開啟公式排版。</p>
+        <p>這個單元包含數學內容。如果你希望公式以排版形式顯示，請到設定頁開啟公式排版。</p>
         {% endif %}
       </article>
       {% endif %}
@@ -163,11 +151,11 @@
 
     <form method="post" action="/tasks/{{ task.id }}/complete" class="checkin-form" data-task-complete-form>
       <label>
-        <span>{% if task.unit.resource.learning_mode == "dictation" %}你從記憶中重建出了什麼？{% else %}你學到了什麼？{% endif %}</span>
+        <span>{% if task.unit.resource.learning_mode == "dictation" %}你憑記憶重建出了什麼？{% else %}你學到了什麼？{% endif %}</span>
         <textarea
           name="summary_text"
           rows="6"
-          placeholder="{% if task.unit.resource.learning_mode == 'dictation' %}盡可能完整地寫回命題、結構、證明思路或公式。{% else %}請用自己的話總結核心觀念。{% endif %}"
+          placeholder="{% if task.unit.resource.learning_mode == 'dictation' %}盡可能完整地寫回命題、公式、證明思路或章節結構。{% else %}請用自己的話總結這一段的核心觀念。{% endif %}"
           required
         ></textarea>
       </label>
@@ -177,7 +165,7 @@
         <textarea
           name="reflection_note"
           rows="4"
-          placeholder="選填：記下你的缺口、誤解或下一步。"
+          placeholder="選填：寫下你的缺口、誤解，或下一步要補的部分。"
         ></textarea>
       </label>
 
@@ -207,4 +195,44 @@
     </form>
   </article>
 </section>
+
+{% if pdf_available %}
+<div
+  class="pdf-preview-overlay"
+  data-pdf-preview-overlay
+  data-pdf-document-url="{{ pdf_document_url }}"
+  data-pdf-page-numbers="{{ pdf_viewer_page_numbers|join(',') }}"
+  data-pdf-page-labels="{{ pdf_page_numbers|join(',') }}"
+  hidden
+  aria-hidden="true"
+>
+  <div class="pdf-preview-backdrop" data-pdf-preview-close></div>
+  <div class="pdf-preview-dialog" data-pdf-preview-dialog role="dialog" aria-modal="true" aria-label="PDF 全屏預覽" tabindex="-1">
+    <div class="pdf-preview-toolbar">
+      <div class="pdf-preview-meta">
+        <strong>{{ task.unit.resource.title }}</strong>
+        <span data-pdf-preview-counter></span>
+      </div>
+      <div class="pdf-preview-actions">
+        <button type="button" class="button button-secondary task-mini-button" data-pdf-preview-fullscreen>切換全屏</button>
+        <button type="button" class="button magnetic-button task-mini-button" data-pdf-preview-close>關閉</button>
+      </div>
+    </div>
+    <div class="pdf-preview-stage">
+      <object
+        data=""
+        type="application/pdf"
+        class="pdf-preview-document"
+        data-pdf-preview-document
+        aria-label="PDF 全屏查看"
+      >
+        <div class="pdf-preview-document-fallback">
+          <p>此裝置無法直接內嵌顯示 PDF。</p>
+          <a href="{{ pdf_document_url }}" target="_blank" rel="noopener noreferrer">直接打開原始 PDF</a>
+        </div>
+      </object>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

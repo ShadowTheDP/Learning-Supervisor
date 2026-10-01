@@ -4,12 +4,15 @@
 {% block title %}儀表板 | 學習監督器{% endblock %}
 
 {% block content %}
-{% set next_study = summary.study_due[0] if summary.study_due else None %}
-{% set next_review = summary.review_due[0] if summary.review_due else None %}
-{% set visible_study = summary.study_due[:app_settings.queue_preview_count_study] %}
-{% set hidden_study = summary.study_due[app_settings.queue_preview_count_study:] %}
-{% set visible_review = summary.review_due[:app_settings.queue_preview_count_review] %}
-{% set hidden_review = summary.review_due[app_settings.queue_preview_count_review:] %}
+{% set study_pending = summary.study_pending if summary.study_pending is defined else summary.study_due %}
+{% set review_pending = summary.review_pending if summary.review_pending is defined else summary.review_due %}
+{% set pending_count = summary.pending_count if summary.pending_count is defined else (study_pending|length + review_pending|length) %}
+{% set next_study = summary.study_due[0] if summary.study_due else (study_pending[0] if study_pending else None) %}
+{% set next_review = summary.review_due[0] if summary.review_due else (review_pending[0] if review_pending else None) %}
+{% set visible_study = study_pending[:app_settings.queue_preview_count_study] %}
+{% set hidden_study = study_pending[app_settings.queue_preview_count_study:] %}
+{% set visible_review = review_pending[:app_settings.queue_preview_count_review] %}
+{% set hidden_review = review_pending[app_settings.queue_preview_count_review:] %}
 {% set dashboard_hero_title_lines = dashboard_hero_title_lines|default(["今日學習總覽"]) %}
 {% set dashboard_major_event = dashboard_major_event|default({
   "has_event": False,
@@ -70,8 +73,8 @@
     <div class="dashboard-summary-grid">
       <article class="dashboard-summary-card">
         <span>待處理</span>
-        <strong class="count-up" data-value="{{ summary.due_today_count + summary.overdue_count }}">{{ summary.due_today_count + summary.overdue_count }}</strong>
-        <small>學習 {{ summary.study_due|length }} / 複習 {{ summary.review_due|length }}</small>
+        <strong class="count-up" data-value="{{ pending_count }}">{{ pending_count }}</strong>
+        <small>學習 {{ study_pending|length }} / 複習 {{ review_pending|length }}</small>
       </article>
       <article class="dashboard-summary-card">
         <span>已逾期</span>
@@ -223,9 +226,9 @@
       </div>
     </div>
 
-    {% if summary.study_due %}
+    {% if study_pending %}
       <div class="queue-legend">
-        <span>依截止日期與優先級排序</span>
+        <span>依截止日期與優先級排序，包含後續已排程任務</span>
         <span>另外還有 {{ hidden_study|length }} 項已收起</span>
       </div>
       <ul class="task-list">
@@ -243,11 +246,11 @@
                 {{ task.unit.content_type_label }}
                 {% if task.unit.page_range_label %}| {{ task.unit.page_range_label }}{% endif %}
                 | 截止 {{ task.due_date.isoformat() }}
-                {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 已排程{% endif %}
               </p>
             </div>
             <div class="task-card-actions">
-              <span class="task-state">{% if task.due_date < summary.today %}追回{% else %}推進{% endif %}</span>
+              <span class="task-state">{% if task.due_date < summary.today %}追回{% elif task.due_date == summary.today %}今天{% else %}排程中{% endif %}</span>
               <a class="button magnetic-button" href="/tasks/{{ task.id }}">立即學習</a>
             </div>
           </li>
@@ -276,11 +279,11 @@
                       {{ task.unit.content_type_label }}
                       {% if task.unit.page_range_label %}| {{ task.unit.page_range_label }}{% endif %}
                       | 截止 {{ task.due_date.isoformat() }}
-                      {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                      {% if task.due_date < summary.today %}| 已逾期{% elif task.due_date == summary.today %}| 今天{% else %}| 已排程{% endif %}
                     </p>
                   </div>
                   <div class="task-card-actions">
-                    <span class="task-state">{% if task.due_date < summary.today %}追回{% else %}推進{% endif %}</span>
+                    <span class="task-state">{% if task.due_date < summary.today %}追回{% elif task.due_date == summary.today %}今天{% else %}排程中{% endif %}</span>
                     <a class="button magnetic-button" href="/tasks/{{ task.id }}">立即學習</a>
                   </div>
                 </li>
@@ -310,9 +313,9 @@
       </div>
     </div>
 
-    {% if summary.review_due %}
+    {% if review_pending %}
       <div class="queue-legend">
-        <span>只顯示已到期或逾期的複習</span>
+        <span>已檢查全部複習任務；未解鎖的複習會保留排程狀態</span>
         <span>另外還有 {{ hidden_review|length }} 項已收起</span>
       </div>
       <ul class="task-list">
@@ -330,12 +333,16 @@
                 {{ review.unit.content_type_label }}
                 {% if review.unit.page_range_label %}| {{ review.unit.page_range_label }}{% endif %}
                 | 截止 {{ review.due_date.isoformat() }}
-                {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 尚未解鎖{% endif %}
               </p>
             </div>
             <div class="task-card-actions">
-              <span class="task-state">{% if review.due_date < summary.today %}追回{% else %}回想{% endif %}</span>
+              <span class="task-state">{% if review.due_date < summary.today %}追回{% elif review.due_date == summary.today %}回想{% else %}未解鎖{% endif %}</span>
+              {% if review.due_date <= summary.today %}
               <a class="button button-secondary magnetic-button" href="/reviews/{{ review.id }}">立即複習</a>
+              {% else %}
+              <span class="button button-secondary button-disabled" aria-disabled="true">等待解鎖</span>
+              {% endif %}
             </div>
           </li>
         {% endfor %}
@@ -363,12 +370,16 @@
                       {{ review.unit.content_type_label }}
                       {% if review.unit.page_range_label %}| {{ review.unit.page_range_label }}{% endif %}
                       | 截止 {{ review.due_date.isoformat() }}
-                      {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 即將到期{% endif %}
+                      {% if review.due_date < summary.today %}| 已逾期{% elif review.due_date == summary.today %}| 今天{% else %}| 尚未解鎖{% endif %}
                     </p>
                   </div>
                   <div class="task-card-actions">
-                    <span class="task-state">{% if review.due_date < summary.today %}追回{% else %}回想{% endif %}</span>
+                    <span class="task-state">{% if review.due_date < summary.today %}追回{% elif review.due_date == summary.today %}回想{% else %}未解鎖{% endif %}</span>
+                    {% if review.due_date <= summary.today %}
                     <a class="button button-secondary magnetic-button" href="/reviews/{{ review.id }}">立即複習</a>
+                    {% else %}
+                    <span class="button button-secondary button-disabled" aria-disabled="true">等待解鎖</span>
+                    {% endif %}
                   </div>
                 </li>
               {% endfor %}

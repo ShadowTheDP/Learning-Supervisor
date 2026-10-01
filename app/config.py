@@ -6,6 +6,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 RESOURCES_DIR = DATA_DIR / "resources"
 STATE_DIR = DATA_DIR / "state"
+IMPORT_JOBS_DIR = STATE_DIR / "import_jobs"
 DOCLING_ARTIFACTS_DIR = STATE_DIR / "docling_artifacts"
 DOCLING_EASYOCR_DIR = DOCLING_ARTIFACTS_DIR / "EasyOcr"
 DOCLING_PDF_BACKEND = (os.getenv("DOCLING_PDF_BACKEND", "local").strip().lower() or "local")
@@ -18,7 +19,7 @@ def _read_bool_env(name: str, default: bool) -> bool:
     return raw_value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
-DOCLING_PDF_OCR_ENABLED = _read_bool_env("DOCLING_PDF_OCR_ENABLED", True)
+DOCLING_PDF_OCR_ENABLED = _read_bool_env("DOCLING_PDF_OCR_ENABLED", False)
 DOCLING_PDF_FORMULA_ENRICHMENT = _read_bool_env("DOCLING_PDF_FORMULA_ENRICHMENT", False)
 DOCLING_EASYOCR_LANGS = tuple(
     part.strip()
@@ -39,6 +40,7 @@ DEFAULT_DAILY_CAPACITY_MINUTES = 45
 def ensure_runtime_dirs() -> None:
     RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    IMPORT_JOBS_DIR.mkdir(parents=True, exist_ok=True)
     DOCLING_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     DOCLING_EASYOCR_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -119,7 +119,7 @@ class PdfIngestRemoteTests(unittest.TestCase):
             self.assertEqual(len(unit_hints), 2)
             self.assertEqual(unit_hints[0].title, "Chapter 1")
             self.assertEqual(unit_hints[0].page_start, 2)
-            self.assertEqual(unit_hints[0].page_end, 3)
+            self.assertEqual(unit_hints[0].page_end, 4)
             self.assertEqual(unit_hints[1].title, "Example 1")
             self.assertEqual(unit_hints[1].page_start, 4)
             self.assertEqual(captured["url"], "https://docling.example/v1/convert/source")

@@ -8,6 +8,7 @@ from ..models import LearningUnit, Resource
 
 
 PDF_PAGE_CACHE_DIRNAME = "pdf_pages"
+PDF_SUBSET_CACHE_DIRNAME = "pdf_subsets"
 PDF_RENDER_SCALE = 2.0
 
 
@@ -61,6 +62,64 @@ def get_available_unit_pdf_page_numbers(unit: LearningUnit) -> list[int]:
         return []
 
     return [page_number for page_number in page_numbers if page_number <= page_count]
+
+
+def get_or_create_unit_pdf_subset(unit: LearningUnit) -> Path:
+    page_numbers = get_available_unit_pdf_page_numbers(unit)
+    if not page_numbers:
+        raise FileNotFoundError("No PDF pages are available for this learning unit.")
+
+    pdf_path = get_original_pdf_path(unit.resource)
+    if pdf_path is None:
+        raise FileNotFoundError("Original PDF is not available for this resource.")
+
+    cache_dir = get_resource_workspace(unit.resource) / PDF_SUBSET_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    start_page = page_numbers[0]
+    end_page = page_numbers[-1]
+    cache_path = cache_dir / f"{unit.id}-{start_page:04d}-{end_page:04d}.pdf"
+    if cache_path.exists():
+        return cache_path
+
+    zero_based_pages = [page_number - 1 for page_number in page_numbers]
+    with pdfium.PdfDocument(str(pdf_path)) as source_document:
+        subset_document = pdfium.PdfDocument.new()
+        try:
+            subset_document.import_pages(source_document, pages=zero_based_pages)
+            subset_document.save(str(cache_path))
+        finally:
+            subset_document.close()
+
+    return cache_path
+
+
+def get_or_create_unit_pdf_preview_page(unit: LearningUnit, source_page_number: int) -> Path:
+    page_numbers = get_available_unit_pdf_page_numbers(unit)
+    if source_page_number not in page_numbers:
+        raise FileNotFoundError("The requested preview page is not available for this learning unit.")
+
+    pdf_path = get_original_pdf_path(unit.resource)
+    if pdf_path is None:
+        raise FileNotFoundError("Original PDF is not available for this resource.")
+
+    cache_dir = get_resource_workspace(unit.resource) / PDF_SUBSET_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_path = cache_dir / f"{unit.id}-preview-{source_page_number:04d}.pdf"
+    if cache_path.exists():
+        return cache_path
+
+    zero_based_page = source_page_number - 1
+    with pdfium.PdfDocument(str(pdf_path)) as source_document:
+        preview_document = pdfium.PdfDocument.new()
+        try:
+            preview_document.import_pages(source_document, pages=[zero_based_page])
+            preview_document.save(str(cache_path))
+        finally:
+            preview_document.close()
+
+    return cache_path
 
 
 def get_or_render_pdf_page(resource: Resource, page_number: int) -> Path:
